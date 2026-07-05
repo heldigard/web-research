@@ -67,7 +67,9 @@ def mode_search(args: argparse.Namespace) -> int:
     return 0
 
 
-def _emit_search_output(args: argparse.Namespace, results: list[dict], profile: dict | None) -> None:
+def _emit_search_output(
+    args: argparse.Namespace, results: list[dict], profile: dict | None
+) -> None:
     """Print smart (profile + optional summary) or standard result listing."""
     if not args.smart:
         print(f"# Search: {args.query}\n")

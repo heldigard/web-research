@@ -1,159 +1,47 @@
-"""Search backends: SearXNG, MiniMax, Z.AI, plus dispatcher."""
+"""Search dispatcher: query fan-out, URL dedup, dict projection.
+
+This module is the thin glue between search backends. All backend-specific
+HTTP lives in ``backends/<name>.py``; this file only orchestrates:
+
+1. Resolve a backend instance from the registry by name.
+2. Fan out across an optional expansion query set (smart mode).
+3. Merge with a SearXNG fallback (broad/fresh when primary is paid).
+4. Deduplicate by canonical URL (tracking-param-stripped).
+5. Project :class:`SearchResult` back to ``dict`` for downstream callers.
+
+Returned dicts preserve the legacy keys (``title`` / ``url`` / ``content``
+/ ``engine`` / ``source`` / ``publishedDate``) so existing formatters and
+tests keep working without churn.
+"""
+
+# vs-soft-allow  — dispatcher signatures mirror the public CLI flags (engine,
+# cat, lang, time_range, queries). Wrapping in a ``SearchRequest`` DTO would
+# shuffle the params without reducing coupling: this is the legitimate seam
+# where CLI args land.
 
 from __future__ import annotations
 
-import urllib.error
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from web_research.shared.config import MINIMAX_API_KEY, SEARXNG_URL, ZAI_API_KEY
-from web_research.shared.http import _debug, _encode_query, _get_json, _post_json, _warn
+from web_research.shared.http import debug, warn
 
-_TRACKING_PARAMS = {
-    "fbclid",
-    "gclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "ref",
-    "ref_src",
-    "spm",
-    "utm_campaign",
-    "utm_content",
-    "utm_medium",
-    "utm_source",
-    "utm_term",
-}
+from . import backends  # noqa: F401 — re-exported so ``wr.search.backends.<x>`` works for tests
+from .backends import (
+    SearchResult,
+    SearXNGBackend,
+    build_backend,
+    normalize_url,
+    tracking_params,
+)
+from .backends.base import SearchBackend
 
-
-def searxng_search(
-    query: str,
-    num: int,
-    cat: str = "general",
-    lang: str = "en",
-    time_range: str = "",
-    pageno: int = 1,
-) -> list[dict]:
-    """Return cleaned SearXNG results."""
-    params: dict[str, str] = {
-        "q": query,
-        "format": "json",
-        "categories": cat,
-        "language": lang,
-        "pageno": str(pageno),
-    }
-    if time_range:
-        params["time_range"] = time_range
-    url = f"{SEARXNG_URL}/search?{_encode_query(params)}"
-    data = _get_json(url)
-    out = []
-    for r in data.get("results", [])[:num]:
-        out.append(
-            {
-                "title": (r.get("title") or "").strip(),
-                "url": r.get("url") or "",
-                "content": (r.get("content") or "").strip(),
-                "engine": r.get("engine") or "",
-                "publishedDate": r.get("publishedDate") or "",
-                "source": "searxng",
-            }
-        )
-    return out
-
-
-def minimax_search(query: str, num: int) -> list[dict]:
-    """Direct MiniMax web search API."""
-    if not MINIMAX_API_KEY:
-        return []
-    try:
-        data = _post_json(
-            "https://api.minimax.io/v1/coding_plan/search",
-            {"q": query},
-            headers={
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
-                "MM-API-Source": "claude-web-research",
-            },
-            timeout=20,
-        )
-        out = []
-        for r in (data.get("organic") or [])[:num]:
-            out.append(
-                {
-                    "title": (r.get("title") or "").strip(),
-                    "url": r.get("link") or "",
-                    "content": (r.get("snippet") or "").strip(),
-                    "engine": "minimax",
-                    "publishedDate": r.get("date") or "",
-                    "source": "minimax",
-                }
-            )
-        return out
-    except urllib.error.URLError as e:
-        _warn("minimax", str(e))
-        return []
-
-
-def zai_search(query: str, num: int, recency: str = "noLimit") -> list[dict]:
-    """Direct Z.AI web search API."""
-    if not ZAI_API_KEY:
-        return []
-    try:
-        data = _post_json(
-            "https://api.z.ai/api/paas/v4/web_search",
-            {
-                "search_engine": "search-prime",
-                "search_query": query,
-                "count": num,
-                "search_recency_filter": recency,
-            },
-            headers={"Authorization": f"Bearer {ZAI_API_KEY}"},
-            timeout=20,
-        )
-        out = []
-        for r in (data.get("search_result") or [])[:num]:
-            out.append(
-                {
-                    "title": (r.get("title") or "").strip(),
-                    "url": r.get("link") or "",
-                    "content": (r.get("content") or "").strip(),
-                    "engine": r.get("media") or "zai",
-                    "publishedDate": r.get("publish_date") or "",
-                    "source": "zai",
-                }
-            )
-        return out
-    except urllib.error.URLError as e:
-        _warn("zai", str(e))
-        return []
-
-
-def _zai_recency(time_range: str) -> str:
-    """Map SearXNG time_range values to Z.AI recency filter values."""
-    return {
-        "day": "oneDay",
-        "week": "oneWeek",
-        "month": "oneMonth",
-        "year": "oneYear",
-    }.get(time_range, "noLimit")
-
-
-def _canonical_url(url: str) -> str:
-    """Normalize result URLs for dedup without changing what users see."""
-    if not url:
-        return ""
-    parsed = urlparse(url)
-    netloc = parsed.netloc.lower()
-    path = parsed.path.rstrip("/") or "/"
-    query_items = [
-        (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k not in _TRACKING_PARAMS
-    ]
-    query = urlencode(query_items, doseq=True)
-    return urlunparse((parsed.scheme.lower(), netloc, path, "", query, ""))
+_TRACKING = tracking_params()
 
 
 def _unique_queries(query: str, queries: list[str] | None = None) -> list[str]:
-    out = []
-    seen = set()
+    """De-dup the query + expansion list (case-insensitive)."""
+    out: list[str] = []
+    seen: set[str] = set()
     for q in [query, *(queries or [])]:
         q = q.strip()
         key = q.lower()
@@ -164,34 +52,44 @@ def _unique_queries(query: str, queries: list[str] | None = None) -> list[str]:
 
 
 def _search_one_query(
-    query: str, num: int, engine: str, cat: str, lang: str, time_range: str
+    query: str,
+    num: int,
+    engine: str,
+    cat: str,
+    lang: str,
+    time_range: str,
 ) -> list[dict]:
-    """Dispatch one query to the requested engine plus local fallback."""
-    engines = [engine]
-    if engine != "searxng":
-        engines.append("searxng")
+    """Run the requested engine plus a SearXNG fallback, return merged dicts.
 
-    def fetch(eng: str) -> list[dict]:
+    SearXNG is appended as a fallback when the primary engine is paid
+    (MiniMax / Z.AI) so free broad results supplement the subscription
+    results without duplicating them (URL dedup downstream).
+    """
+    instances: list[SearchBackend] = []
+    primary = build_backend(engine)
+    if primary is not None:
+        instances.append(primary)
+    if engine != "searxng":
+        instances.append(SearXNGBackend(cat=cat, lang=lang))
+
+    def fetch(b: SearchBackend) -> list[SearchResult]:
         try:
-            if eng == "minimax":
-                return minimax_search(query, num)
-            if eng == "zai":
-                return zai_search(query, num, _zai_recency(time_range))
-            return searxng_search(query, num, cat, lang, time_range)
-        except urllib.error.URLError as e:
-            _warn(eng, str(e))
+            opts: dict[str, object] = {"time_range": time_range} if b.name == "zai" else {}
+            return b.search(query, num, **opts)
+        except Exception as e:  # noqa: BLE001 — backends already warn, this is the safety net
+            warn(b.name, str(e))
             return []
 
-    with ThreadPoolExecutor(max_workers=min(len(engines), 2)) as ex:
-        batches = list(ex.map(fetch, engines))
+    with ThreadPoolExecutor(max_workers=min(len(instances), 2)) as ex:
+        batches = list(ex.map(fetch, instances))
 
-    results = []
+    results: list[SearchResult] = []
     for batch in batches:
         results.extend(batch)
-    return results
+    return [r.to_dict() for r in results]
 
 
-def search_backends(
+def search_backends(  # vs-soft-allow  — CLI-arg passthrough
     query: str,
     num: int,
     engine: str,
@@ -200,21 +98,80 @@ def search_backends(
     time_range: str,
     queries: list[str] | None = None,
 ) -> list[dict]:
-    """Dispatch to chosen engine, with SearXNG fallback and URL dedup."""
-    seen_urls = set()
-    results = []
+    """Dispatch to the chosen engine + SearXNG fallback, return deduped dicts.
+
+    Iterates ``[query, *queries]`` until ``num`` unique URLs are collected.
+    Tracking params (``utm_*``, ``fbclid``, ...) are stripped during
+    canonicalization so the same article under different campaign tags
+    collapses to one entry.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
 
     all_queries = _unique_queries(query, queries)
-    _debug("search", f"engine={engine} queries={len(all_queries)} num={num}")
+    debug("search", f"engine={engine} queries={len(all_queries)} num={num}")
     for q in all_queries:
         batch = _search_one_query(q, num, engine, cat, lang, time_range)
-        for r in batch:
-            canonical = _canonical_url(r.get("url", ""))
-            if canonical and canonical in seen_urls:
-                continue
-            if canonical:
-                seen_urls.add(canonical)
-            results.append(r)
-        if len(results) >= num:
+        out = _absorb_dedup(batch, out, seen, num)
+        if len(out) >= num:
             break
-    return results[:num]
+    return out[:num]
+
+
+def _absorb_dedup(
+    batch: list[dict],
+    out: list[dict],
+    seen: set[str],
+    num: int,
+) -> list[dict]:
+    """Append ``batch`` into ``out`` keeping only URLs new to ``seen``."""
+    for r in batch:
+        canonical = normalize_url(r.get("url", ""), _TRACKING)
+        if canonical and canonical in seen:
+            continue
+        if canonical:
+            seen.add(canonical)
+        out.append(r)
+    return out
+
+
+# -- Legacy thin functions re-exported for the historic flat API --------------
+# These exist so ``from web_research.features.search.engine import
+# searxng_search`` keeps working. New code should use ``SearXNGBackend``
+# from ``backends/searxng.py`` directly.
+
+
+def searxng_search(
+    query: str,
+    num: int,
+    cat: str = "general",
+    lang: str = "en",
+    time_range: str = "",
+    pageno: int = 1,
+) -> list[dict]:
+    """Legacy entry point. Prefer ``SearXNGBackend().search(...)``."""
+    backend = SearXNGBackend(cat=cat, lang=lang)
+    return [r.to_dict() for r in backend.search(query, num, time_range=time_range, pageno=pageno)]
+
+
+def minimax_search(query: str, num: int) -> list[dict]:
+    """Legacy entry point. Prefer ``MinimaxBackend().search(...)``."""
+    from .backends import MinimaxBackend
+
+    return [r.to_dict() for r in MinimaxBackend().search(query, num)]
+
+
+def zai_search(query: str, num: int, recency: str = "noLimit") -> list[dict]:
+    """Legacy entry point. Prefer ``ZaiBackend().search(...)``."""
+    from .backends import ZaiBackend
+
+    return [r.to_dict() for r in ZaiBackend().search(query, num, time_range=recency)]
+
+
+# Re-exported for downstream callers that imported them via this module.
+__all__ = [
+    "search_backends",
+    "searxng_search",
+    "minimax_search",
+    "zai_search",
+]
