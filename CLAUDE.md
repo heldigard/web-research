@@ -63,10 +63,11 @@ Common: --no-cache --timeout N --verbose
   `src/web_research/shared/`. Shared NEVER imports from features (low coupling).
 - **Absolute imports** rooted at `web_research` (not relative) — clearer across
   the nested feature layout.
-- **cheap_llm.py stays in `~/.claude/scripts/`** (shared by 8+ other scripts).
-  Consumed as an OPTIONAL fallback via `WEB_RESEARCH_SCRIPTS` env
-  (alias `CHEAP_LLM_HOME` for back-compat; default
-  `~/.claude/scripts`); graceful degrade if absent.
+- **cheap_llm.py graduated to `~/cheap-llm/`** (standalone project,
+  github.com/heldigard/cheap-llm). Shim at `~/.claude/scripts/cheap_llm.py`
+  re-exports from there. Consumed as an OPTIONAL fallback via
+  `WEB_RESEARCH_SCRIPTS` env (alias `CHEAP_LLM_HOME` for back-compat;
+  default `~/.claude/scripts`); graceful degrade if absent.
 - External services: SearXNG `:8080`, Firecrawl `:3002`, Ollama `:11434`.
 
 ## Commands
