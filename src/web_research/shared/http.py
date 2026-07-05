@@ -10,6 +10,8 @@ import urllib.request
 
 from . import config
 
+_USER_AGENT = "web-research/0.1 (+https://github.com/heldigard/web-research)"
+
 
 def _warn(tag: str, msg: str) -> None:
     """Emit a backend error line to stderr (always shown)."""
@@ -31,7 +33,10 @@ def _http(
     """Fetch bytes from a URL."""
     if timeout is None:
         timeout = config.TIMEOUT
-    req = urllib.request.Request(url, data=data, headers=headers or {})
+    h = {"User-Agent": _USER_AGENT}
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(url, data=data, headers=h)
     with urllib.request.urlopen(req, timeout=timeout) as response:
         return response.read()
 

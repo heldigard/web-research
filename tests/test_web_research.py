@@ -621,5 +621,169 @@ class ConfigFlagTests(unittest.TestCase):
             _config.TIMEOUT, _config.VERBOSE = orig_t, orig_v
 
 
+class RenderStructuredTests(unittest.TestCase):
+    """Structured synthesis rendering: contradictions, facts, unknowns."""
+
+    def test_contradictions_sources_formatted_as_citations(self):
+        from web_research.features.synthesis.engine import _render_structured
+
+        payload = json.dumps(
+            {
+                "answer": "A",
+                "contradictions": [{"claim_a": "X works", "claim_b": "X fails", "sources": [1, 3]}],
+            }
+        )
+        out = _render_structured(payload)
+        self.assertIn("[1, 3]", out)
+        self.assertNotIn("[1,3]", out)  # no raw list repr
+
+    def test_contradictions_empty_sources_no_brackets(self):
+        from web_research.features.synthesis.engine import _render_structured
+
+        payload = json.dumps({"contradictions": [{"claim_a": "A", "claim_b": "B", "sources": []}]})
+        out = _render_structured(payload)
+        self.assertIn("A vs B", out)
+        self.assertNotIn("[]", out)
+
+    def test_contradictions_missing_sources_no_crash(self):
+        from web_research.features.synthesis.engine import _render_structured
+
+        payload = json.dumps({"contradictions": [{"claim_a": "A", "claim_b": "B"}]})
+        out = _render_structured(payload)
+        self.assertIn("A vs B", out)
+
+    def test_full_structured_roundtrip(self):
+        from web_research.features.synthesis.engine import _render_structured
+
+        payload = json.dumps(
+            {
+                "answer": "The answer",
+                "facts": [
+                    {"claim": "fact1", "source": 1, "confidence": "high"},
+                    {"claim": "fact2", "source": 2, "confidence": "low"},
+                ],
+                "contradictions": [{"claim_a": "A", "claim_b": "B", "sources": [1, 2]}],
+                "unknowns": ["what about X?"],
+                "recommended_next_search": "search for X",
+            }
+        )
+        out = _render_structured(payload)
+        self.assertIn("The answer", out)
+        self.assertIn("Key facts", out)
+        self.assertIn("(high) fact1 [1]", out)
+        self.assertIn("(low) fact2 [2]", out)
+        self.assertIn("Contradictions", out)
+        self.assertIn("[1, 2]", out)
+        self.assertIn("Unknowns", out)
+        self.assertIn("what about X?", out)
+        self.assertIn("Suggested next search", out)
+        self.assertIn("search for X", out)
+
+
+class DomainMatchTests(unittest.TestCase):
+    """source_quality_score domain matching edge cases."""
+
+    def test_exact_domain_match(self):
+        score = wr.source_quality_score("https://docs.python.org/3/", "Title", "x" * 100)
+        self.assertGreaterEqual(score, 0.4)
+
+    def test_subdomain_match(self):
+        score = wr.source_quality_score("https://docs.python.org/dev/", "Title", "x" * 100)
+        self.assertGreaterEqual(score, 0.4)
+
+    def test_evil_subdomain_no_match(self):
+        """evil-docs.python.org must NOT match docs.python.org."""
+        score = wr.source_quality_score("https://evil-docs.python.org/phish", "T", "short")
+        self.assertLess(score, 0.4)
+
+    def test_similar_but_different_domain(self):
+        score = wr.source_quality_score("https://notpython.org/docs/", "T", "short")
+        self.assertLess(score, 0.4)
+
+    def test_stackoverflow_exact(self):
+        score = wr.source_quality_score("https://stackoverflow.com/q/123", "Title", "x" * 100)
+        self.assertGreaterEqual(score, 0.4)
+
+    def test_fake_stackoverflow_no_match(self):
+        score = wr.source_quality_score("https://evil-stackoverflow.com/q/1", "T", "short")
+        self.assertLess(score, 0.4)
+
+
+class CacheTTLTests(unittest.TestCase):
+    """Cache TTL expiry behavior."""
+
+    def setUp(self):
+        _clear_cache()
+
+    def test_expired_entry_returns_none(self):
+        import web_research.shared.cache as cache
+        import time
+
+        cache.set("ttl", {"k": "v"}, {"data": "old"})
+        # Manually backdate the cache file
+        cache_dir = Path(_config.CACHE_DIR or Path.home() / ".cache" / "web-research")
+        files = list(cache_dir.glob("ttl_*.json"))
+        self.assertEqual(len(files), 1)
+        import json as _json
+
+        entry = _json.loads(files[0].read_text())
+        entry["ts"] = time.time() - _config.CACHE_TTL_SECONDS - 10
+        files[0].write_text(_json.dumps(entry))
+        self.assertIsNone(cache.get("ttl", {"k": "v"}))
+
+
+class FallbackTests(unittest.TestCase):
+    """scrape_with_fallback: Firecrawl down -> Z.AI reader."""
+
+    @patch("urllib.request.urlopen")
+    def test_scrape_with_fallback_uses_zai(self, mock_open):
+        mock_open.side_effect = _mock_urlopen(
+            {
+                "https://api.z.ai/api/paas/v4/reader": {
+                    "reader_result": {
+                        "title": "Z",
+                        "content": "zai body",
+                        "url": "https://example.com",
+                    }
+                }
+            }
+        )
+        with patch.object(wr.reader, "ZAI_API_KEY", "sk-test"):
+            # Firecrawl will fail (unmocked URL), Z.AI should succeed
+            md = wr.scrape_with_fallback("https://example.com")
+        self.assertIn("zai body", md)
+
+    def test_scrape_with_fallback_no_keys_returns_empty(self):
+        with patch.object(wr.reader, "ZAI_API_KEY", ""):
+            with patch("urllib.request.urlopen", side_effect=Exception("down")):
+                md = wr.scrape_with_fallback("https://example.com")
+        self.assertEqual(md, "")
+
+
+class QueryProfileRuleTests(unittest.TestCase):
+    """query_profile rule-based classification edge cases."""
+
+    @patch("ollama_client.is_alive")
+    def test_news_keywords_set_recency(self, mock_alive):
+        mock_alive.return_value = False
+        prof = wr.query_profile("latest python 3.13 release announced")
+        self.assertTrue(prof["needs_recency"])
+        self.assertEqual(prof["intent"], "news")
+
+    @patch("ollama_client.is_alive")
+    def test_docs_keywords_set_sites(self, mock_alive):
+        mock_alive.return_value = False
+        prof = wr.query_profile("flask api reference method")
+        self.assertEqual(prof["intent"], "docs")
+        self.assertTrue(any("docs.python.org" in s for s in prof["preferred_sites"]))
+
+    @patch("ollama_client.is_alive")
+    def test_general_fallback(self, mock_alive):
+        mock_alive.return_value = False
+        prof = wr.query_profile("random unrelated topic")
+        self.assertEqual(prof["intent"], "general")
+        self.assertFalse(prof["needs_recency"])
+
+
 if __name__ == "__main__":
     unittest.main()

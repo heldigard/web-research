@@ -46,7 +46,7 @@ def source_quality_score(url: str, title: str, content: str) -> float:
         "claude.ai",
     }
     score = 0.0
-    if any(d in domain for d in authority_domains):
+    if any(domain == d or domain.endswith("." + d) for d in authority_domains):
         score += 0.4
     if "blog" in domain or "medium.com" in domain:
         score += 0.1

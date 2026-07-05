@@ -19,6 +19,18 @@ def _synthesize_local(prompt: str, system: str) -> str | None:
     return generate(prompt, system=system, temperature=0.2, model=OLLAMA_SYNTH_MODEL)
 
 
+_STRUCTURED_SCHEMA = [
+    "answer",
+    "facts[].claim",
+    "facts[].source",
+    "facts[].confidence",
+    "contradictions[].claim_a",
+    "contradictions[].claim_b",
+    "contradictions[].sources",
+    "unknowns[]",
+]
+
+
 def _synthesize_cloud(prompt: str, system: str, structured: bool = False) -> str | None:
     if cheap_complete is None:
         return None
@@ -26,20 +38,7 @@ def _synthesize_cloud(prompt: str, system: str, structured: bool = False) -> str
         out = cheap_complete(
             system=system,
             prompt=prompt,
-            schema_hint=(
-                [
-                    "answer",
-                    "facts[].claim",
-                    "facts[].source",
-                    "facts[].confidence",
-                    "contradictions[].claim_a",
-                    "contradictions[].claim_b",
-                    "contradictions[].sources",
-                    "unknowns[]",
-                ]
-                if structured
-                else None
-            ),
+            schema_hint=_STRUCTURED_SCHEMA if structured else None,
             timeout_total=30.0,
             require_json=structured,
             cloud_model=WEB_SYNTH_CLOUD_MODEL,
@@ -101,21 +100,24 @@ def synthesize(
     # the (prompt, system) call signature.
     cloud_fn = partial(_synthesize_cloud, structured=structured)
     for fn, label in ((_synthesize_local, "ollama"), (cloud_fn, "cloud")):
-        try:
-            answer = fn(prompt, base_system)
-            if answer:
-                return _format_answer(answer, structured, docs)
-        except Exception as e:  # noqa: BLE001
-            _warn(label, f"synthesis failed: {e}")
+        answer = _try_synthesize(fn, label, prompt, base_system)
+        if answer:
+            return _format_answer(answer, structured)
     return None
 
 
-def _format_answer(answer: str, structured: bool, docs: list[dict]) -> str | None:
-    """Render a structured answer or return the prose answer as-is.
+def _try_synthesize(fn, label: str, prompt: str, system: str) -> str | None:
+    """Call a synthesis backend, swallowing exceptions."""
+    try:
+        answer = fn(prompt, system)
+        return answer if answer else None
+    except Exception as e:  # noqa: BLE001
+        _warn(label, f"synthesis failed: {e}")
+        return None
 
-    ``docs`` is passed through to ``_render_structured`` for source-list
-    rendering (currently unused but preserves the public call signature)."""
-    _ = docs  # kept for call-site compatibility
+
+def _format_answer(answer: str, structured: bool) -> str | None:
+    """Render a structured answer or return the prose answer as-is."""
     if structured:
         return _render_structured(answer)
     return answer
@@ -129,37 +131,55 @@ def _render_structured(answer: str) -> str:
     except json.JSONDecodeError:
         return answer
 
-    lines = []
+    sections = []
+    _render_answer(data, sections)
+    _render_facts(data, sections)
+    _render_contradictions(data, sections)
+    _render_unknowns(data, sections)
+    _render_next_search(data, sections)
+    return "\n".join(sections).strip() or answer
+
+
+def _render_answer(data: dict, lines: list[str]) -> None:
     if data.get("answer"):
         lines.append(data["answer"])
         lines.append("")
 
+
+def _render_facts(data: dict, lines: list[str]) -> None:
     facts = data.get("facts") or []
-    if facts:
-        lines.append("### Key facts")
-        for f in facts:
-            claim = f.get("claim", "")
-            src = f.get("source")
-            conf = f.get("confidence", "medium")
-            cite = f" [{src}]" if isinstance(src, int) else ""
-            lines.append(f"- ({conf}) {claim}{cite}")
-        lines.append("")
+    if not facts:
+        return
+    lines.append("### Key facts")
+    for f in facts:
+        src = f.get("source")
+        cite = f" [{src}]" if isinstance(src, int) else ""
+        lines.append(f"- ({f.get('confidence', 'medium')}) {f.get('claim', '')}{cite}")
+    lines.append("")
 
+
+def _render_contradictions(data: dict, lines: list[str]) -> None:
     contradictions = data.get("contradictions") or []
-    if contradictions:
-        lines.append("### Contradictions")
-        for c in contradictions:
-            lines.append(f"- {c.get('claim_a')} vs {c.get('claim_b')} {c.get('sources', [])}")
-        lines.append("")
+    if not contradictions:
+        return
+    lines.append("### Contradictions")
+    for c in contradictions:
+        srcs = c.get("sources") or []
+        cite = " [" + ", ".join(str(s) for s in srcs) + "]" if srcs else ""
+        lines.append(f"- {c.get('claim_a')} vs {c.get('claim_b')}{cite}")
+    lines.append("")
 
+
+def _render_unknowns(data: dict, lines: list[str]) -> None:
     unknowns = data.get("unknowns") or []
-    if unknowns:
-        lines.append("### Unknowns / gaps")
-        for u in unknowns:
-            lines.append(f"- {u}")
-        lines.append("")
+    if not unknowns:
+        return
+    lines.append("### Unknowns / gaps")
+    for u in unknowns:
+        lines.append(f"- {u}")
+    lines.append("")
 
+
+def _render_next_search(data: dict, lines: list[str]) -> None:
     if data.get("recommended_next_search"):
         lines.append(f"### Suggested next search\n- {data['recommended_next_search']}\n")
-
-    return "\n".join(lines).strip() or answer
