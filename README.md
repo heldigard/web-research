@@ -60,7 +60,7 @@ skills (`web-search`, `search-smart`, `web-reader`, `web-research`, `searxng`,
 
 `cheap_llm.py` (the cloud cascade) is **not** part of this repo — it stays in
 `~/.claude/scripts/` as shared infrastructure consumed by 8+ other tools. This
-engine loads it optionally via `CHEAP_LLM_HOME` (default `~/.claude/scripts`)
+engine loads it optionally via `WEB_RESEARCH_SCRIPTS` (alias `CHEAP_LLM_HOME`; default `~/.claude/scripts`)
 and degrades gracefully when absent.
 
 ## License

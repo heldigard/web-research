@@ -42,4 +42,8 @@ CACHE_TTL_SECONDS = int(os.getenv("WEB_RESEARCH_CACHE_TTL", "3600"))
 # this package): ollama_client.py (embed/generate/is_alive) and cheap_llm.py
 # (cloud cascade). Both are optional; the engine degrades gracefully when absent.
 # Override only if your harness lives elsewhere. Defaults to ~/.claude/scripts/.
-ECOSYSTEM_SCRIPTS = os.getenv("WEB_RESEARCH_SCRIPTS", str(Path.home() / ".claude" / "scripts"))
+#
+# Canonical env var: WEB_RESEARCH_SCRIPTS (matches CODEQ_HARNESS_SCRIPTS pattern).
+# Deprecated alias: CHEAP_LLM_HOME (kept for docs that still reference it).
+_scripts_env = os.getenv("WEB_RESEARCH_SCRIPTS") or os.getenv("CHEAP_LLM_HOME", "")
+ECOSYSTEM_SCRIPTS = _scripts_env or str(Path.home() / ".claude" / "scripts")

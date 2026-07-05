@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from web_research.shared.ollama_api import cosine, embed, is_alive
@@ -74,15 +75,25 @@ def rerank_results(
     sim_cutoff: float = 0.93,
     quality_weight: float = 0.3,
 ) -> list[dict]:
-    """Order by composite score (semantic similarity + source quality); drop near-duplicates."""
+    """Order by composite score (semantic similarity + source quality); drop near-duplicates.
+
+    Embeds are parallelized (ThreadPoolExecutor) instead of sequential N+1 calls.
+    ``_quality`` is reused if already present (set by ``annotate_quality``).
+    """
     if not results:
         return results
     qv = embed(query) if is_alive() else None
-    for r in results:
-        text = r["title"] + ". " + r["content"][:300]
-        v = embed(text) if qv else None
+    texts = [r["title"] + ". " + r["content"][:300] for r in results]
+    if qv:
+        with ThreadPoolExecutor(max_workers=min(len(results), 4) or 1) as ex:
+            vecs = list(ex.map(embed, texts))
+    else:
+        vecs = [None] * len(results)
+    for r, v in zip(results, vecs, strict=True):
         sim = cosine(qv, v) if qv and v else 0.0
-        quality = source_quality_score(r.get("url", ""), r["title"], r["content"])
+        quality = r.get("_quality")
+        if quality is None:
+            quality = source_quality_score(r.get("url", ""), r["title"], r["content"])
         r["_score"] = (1 - quality_weight) * sim + quality_weight * quality
         r["_v"] = v
 

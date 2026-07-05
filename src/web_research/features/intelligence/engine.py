@@ -8,6 +8,14 @@ from datetime import UTC
 
 from web_research.shared.ollama_api import generate, is_alive
 
+# ---------------------------------------------------------------
+# Tuning constants for :func:`focused_extract`
+# ---------------------------------------------------------------
+_FOCUSED_MIN_TEXT_LEN = 800  # below this, return text as-is (no extraction needed)
+_FOCUSED_LLM_CHARS = 6000  # max chars sent to the LLM extractor
+_HEURISTIC_TOP_PARAGRAPHS = 4  # top-N paragraphs in deterministic fallback
+_HEURISTIC_FALLBACK_CHARS = 1200  # first N chars when heuristic finds nothing
+
 
 def _today() -> str:
     """Return current ISO date (runtime)."""
@@ -44,7 +52,7 @@ def query_profile(query: str) -> dict:
             "site:developer.mozilla.org",
         ]
         default["expected_format"] = "paragraph"
-    elif any(w in q for w in ("vs", "versus", "compare", "difference", " mejor ", "better")):
+    elif {"vs", "versus", "compare", "difference", "mejor", "better"} & set(q.split()):
         default["intent"] = "comparison"
         default["expected_format"] = "table"
     elif any(w in q for w in ("latest", "news", "release", "announced", "2025", "2026")):
@@ -77,15 +85,14 @@ def query_profile(query: str) -> dict:
 
 
 def expand_queries(query: str, profile: dict | None = None) -> list[str]:
-    """Return original query plus targeted variants."""
+    """Return original query plus targeted variants (max 5 total)."""
     profile = profile or query_profile(query)
-    variants = [query]
-    variants.extend(profile.get("expand_queries", [])[1:3])
-    seen = set()
-    out = []
-    for v in variants:
+    out = [query]
+    seen: set[str] = {query}
+    eqs = profile.get("expand_queries") or []
+    for v in eqs:
         v = v.strip()
-        if v and v not in seen:
+        if v and v not in seen and len(out) < 5:
             seen.add(v)
             out.append(v)
     return out
@@ -96,7 +103,7 @@ def focused_extract(text: str, query: str, intent: str = "general") -> str:
 
     Falls back to a heuristic paragraph extraction if Ollama is unavailable.
     """
-    if not text or len(text) <= 800:
+    if not text or len(text) <= _FOCUSED_MIN_TEXT_LEN:
         return text
 
     if not is_alive():
@@ -109,7 +116,7 @@ def focused_extract(text: str, query: str, intent: str = "general") -> str:
         "and a note about date/version if present. If nothing is relevant, "
         "reply exactly: NO_RELEVANT_CONTENT."
     )
-    prompt = f"Query: {query}\nIntent: {intent}\nPage text:\n{text[:6000]}\n\nExtraction:"
+    prompt = f"Query: {query}\nIntent: {intent}\nPage text:\n{text[:_FOCUSED_LLM_CHARS]}\n\nExtraction:"
     raw = generate(prompt, system=system, temperature=0.1)
     if raw and "NO_RELEVANT_CONTENT" not in raw:
         return raw.strip()
@@ -126,5 +133,5 @@ def _heuristic_extract(text: str, query: str) -> str:
         overlap = len(words & query_words) / max(len(query_words), 1)
         scored.append((overlap, p))
     scored.sort(key=lambda x: x[0], reverse=True)
-    kept = [p for s, p in scored[:4] if s > 0]
-    return "\n\n".join(kept) if kept else text[:1200]
+    kept = [p for s, p in scored[:_HEURISTIC_TOP_PARAGRAPHS] if s > 0]
+    return "\n\n".join(kept) if kept else text[:_HEURISTIC_FALLBACK_CHARS]

@@ -9,6 +9,13 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 
+try:
+    from importlib.metadata import version as _version
+
+    _pkg_version = _version("web-research")
+except Exception:  # pragma: no cover
+    _pkg_version = "0.0.0"
+
 
 def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     """Construct the top-level parser.
@@ -24,7 +31,10 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     common.add_argument("--verbose", action="store_true", help="emit backend diagnostics to stderr")
 
     p = argparse.ArgumentParser(
-        description="Local web research engine (SearXNG+Firecrawl+Ollama+cloud fallback)."
+        description="Local web research engine (SearXNG+Firecrawl+Ollama+cloud fallback).",
+    )
+    p.add_argument(
+        "--version", action="version", version=f"web-research {_pkg_version}"
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 

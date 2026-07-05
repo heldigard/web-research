@@ -3,25 +3,36 @@
 from __future__ import annotations
 
 import math
-import sys
+import time as _time
 
-# Ensure sibling scripts are importable when package is run from any cwd.
-from .config import ECOSYSTEM_SCRIPTS  # sibling scripts dir (ollama_client, cheap_llm)
+from web_research.shared.compat import oc
 
-if ECOSYSTEM_SCRIPTS not in sys.path:
-    sys.path.insert(0, ECOSYSTEM_SCRIPTS)
+from .config import OLLAMA_EMBED, OLLAMA_MODEL, OLLAMA_URL
 
-try:
-    import ollama_client as oc
-except Exception:  # pragma: no cover
-    oc = None  # type: ignore[assignment]
-
-from .config import OLLAMA_EMBED, OLLAMA_MODEL, OLLAMA_URL  # noqa: E402
+# Short-TTL cache for is_alive() — avoids repeated HTTP pings in a single
+# operation (research mode can call is_alive 2-3 times on one path).
+_alive_at: float = 0.0
+_alive_value: bool = False
+_ALIVE_TTL: float = 30.0
 
 
 def is_alive() -> bool:
-    """Check if Ollama is reachable."""
-    return oc is not None and oc.is_alive(base_url=OLLAMA_URL)
+    """Check if Ollama is reachable (30 s cache)."""
+    global _alive_at, _alive_value
+    now = _time.time()
+    if now - _alive_at < _ALIVE_TTL:
+        return _alive_value
+    v = oc is not None and oc.is_alive(base_url=OLLAMA_URL)
+    _alive_at = now
+    _alive_value = v
+    return v
+
+
+def _bust_alive_cache() -> None:
+    """Reset the ``is_alive`` cache (idempotent, called from test setUp)."""
+    global _alive_at, _alive_value
+    _alive_at = 0.0
+    _alive_value = False
 
 
 def embed(text: str) -> list[float] | None:

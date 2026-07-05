@@ -4,25 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from functools import partial
 
-# Ensure sibling scripts are importable when package is run from any cwd.
-from web_research.shared.config import (
-    ECOSYSTEM_SCRIPTS,  # sibling scripts dir (ollama_client, cheap_llm)
-)
-
-if ECOSYSTEM_SCRIPTS not in sys.path:
-    sys.path.insert(0, ECOSYSTEM_SCRIPTS)
-
-try:
-    from cheap_llm import cheap_complete
-except Exception:  # pragma: no cover
-    cheap_complete = None  # type: ignore[assignment]
-
-from web_research.shared.config import OLLAMA_SYNTH_MODEL, WEB_SYNTH_CLOUD_MODEL  # noqa: E402
-from web_research.shared.http import _warn  # noqa: E402
-from web_research.shared.ollama_api import generate  # noqa: E402
+from web_research.shared.compat import cheap_complete
+from web_research.shared.config import OLLAMA_SYNTH_MODEL, WEB_SYNTH_CLOUD_MODEL
+from web_research.shared.http import _warn
+from web_research.shared.ollama_api import generate
 
 
 def _synthesize_local(prompt: str, system: str) -> str | None:
@@ -117,15 +104,24 @@ def synthesize(
         try:
             answer = fn(prompt, base_system)
             if answer:
-                if structured:
-                    return _render_structured(answer, docs)
-                return answer
+                return _format_answer(answer, structured, docs)
         except Exception as e:  # noqa: BLE001
             _warn(label, f"synthesis failed: {e}")
     return None
 
 
-def _render_structured(answer: str, docs: list[dict]) -> str:
+def _format_answer(answer: str, structured: bool, docs: list[dict]) -> str | None:
+    """Render a structured answer or return the prose answer as-is.
+
+    ``docs`` is passed through to ``_render_structured`` for source-list
+    rendering (currently unused but preserves the public call signature)."""
+    _ = docs  # kept for call-site compatibility
+    if structured:
+        return _render_structured(answer)
+    return answer
+
+
+def _render_structured(answer: str) -> str:
     """Parse structured JSON and render it as clean markdown."""
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", answer.strip(), flags=re.MULTILINE)
     try:

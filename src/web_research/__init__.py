@@ -12,6 +12,13 @@ resolving to the module where the name is actually bound.
 
 from __future__ import annotations
 
+try:
+    from importlib.metadata import version as _version
+
+    __version__ = _version("web-research")
+except Exception:  # pragma: no cover — installed vs source-tree
+    __version__ = "0.0.0"
+
 from .cli import main
 from .features.intelligence.engine import (
     expand_queries,
@@ -30,6 +37,7 @@ from .features.synthesis.engine import synthesize
 from .shared.formatters import fmt_results, fmt_smart_results
 
 __all__ = [
+    "__version__",
     "main",
     "fmt_results",
     "fmt_smart_results",

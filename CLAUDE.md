@@ -64,7 +64,8 @@ Common: --no-cache --timeout N --verbose
 - **Absolute imports** rooted at `web_research` (not relative) — clearer across
   the nested feature layout.
 - **cheap_llm.py stays in `~/.claude/scripts/`** (shared by 8+ other scripts).
-  Consumed as an OPTIONAL fallback via `CHEAP_LLM_HOME` env (default
+  Consumed as an OPTIONAL fallback via `WEB_RESEARCH_SCRIPTS` env
+  (alias `CHEAP_LLM_HOME` for back-compat; default
   `~/.claude/scripts`); graceful degrade if absent.
 - External services: SearXNG `:8080`, Firecrawl `:3002`, Ollama `:11434`.
 

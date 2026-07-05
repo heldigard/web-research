@@ -22,6 +22,9 @@ def _clear_cache() -> None:
     cache_dir = Path(_config.CACHE_DIR or Path.home() / ".cache" / "web-research")
     if cache_dir.exists():
         rmtree(cache_dir)
+    # Reset the is_alive() TTL cache so mock_alive patches don't bleed across tests.
+    from web_research.shared.ollama_api import _bust_alive_cache
+    _bust_alive_cache()
 
 
 def _cache_file_count() -> int:
@@ -324,7 +327,7 @@ class SynthesisTests(unittest.TestCase):
             '{"answer":"A","facts":[{"claim":"c","source":1,"confidence":"high"}],'
             '"unknowns":["u"],"recommended_next_search":"next"}'
         )
-        out = _render_structured(payload, [{"title": "D", "url": "https://d"}])
+        out = _render_structured(payload)
         self.assertIn("A", out)
         self.assertIn("Key facts", out)
         self.assertIn("(high)", out)
@@ -334,7 +337,7 @@ class SynthesisTests(unittest.TestCase):
     def test_render_structured_invalid_json_passthrough(self):
         from web_research.features.synthesis.engine import _render_structured
 
-        out = _render_structured("not json at all", [])
+        out = _render_structured("not json at all")
         self.assertEqual(out, "not json at all")
 
 
