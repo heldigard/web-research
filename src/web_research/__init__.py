@@ -24,6 +24,7 @@ from .features.intelligence.engine import (
     expand_queries,
     focused_extract,
     query_profile,
+    search_queries,
 )
 from .features.ranking.engine import rerank_results, source_quality_score
 
@@ -44,6 +45,7 @@ __all__ = [
     "expand_queries",
     "focused_extract",
     "query_profile",
+    "search_queries",
     "rerank_results",
     "source_quality_score",
     "firecrawl_scrape",

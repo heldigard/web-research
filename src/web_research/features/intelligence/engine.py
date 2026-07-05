@@ -98,6 +98,33 @@ def expand_queries(query: str, profile: dict | None = None) -> list[str]:
     return out
 
 
+def search_queries(query: str, profile: dict | None = None, max_queries: int = 4) -> list[str]:
+    """Build the bounded query set used by smart search/research.
+
+    LLM-generated expansions and preferred ``site:`` filters are useful, but
+    unbounded fan-out makes agent tools slow and noisy. Keep the original query
+    first, then add at most a few high-signal variants.
+    """
+    if max_queries <= 1:
+        return [query]
+
+    profile = profile or query_profile(query)
+    out = expand_queries(query, profile)[:max_queries]
+    seen = {q.lower() for q in out}
+
+    for site in profile.get("preferred_sites") or []:
+        site = str(site).strip()
+        if not site.startswith("site:") or len(out) >= max_queries:
+            continue
+        variant = f"{query} {site}"
+        key = variant.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(variant)
+
+    return out
+
+
 def focused_extract(text: str, query: str, intent: str = "general") -> str:
     """Extract only the portion of a page relevant to the query.
 

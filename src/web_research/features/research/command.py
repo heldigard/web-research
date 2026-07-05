@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import cast
 
-from web_research.features.intelligence.engine import focused_extract, query_profile
+from web_research.features.intelligence.engine import focused_extract, query_profile, search_queries
 from web_research.features.ranking.engine import annotate_quality, rerank_results
 from web_research.features.read.engine import scrape_with_fallback
 from web_research.features.search.engine import search_backends
@@ -21,14 +21,18 @@ from web_research.shared.http import _debug
 from web_research.shared.ollama_api import is_alive
 
 
-def _search_phase(args: argparse.Namespace, time_range: str, cache_params: dict) -> list[dict]:
+def _search_phase(
+    args: argparse.Namespace, time_range: str, cache_params: dict, queries: list[str]
+) -> list[dict]:
     """Return search results (cache-miss path runs the backend dispatch)."""
     cached = None if args.no_cache else cache_get("research", cache_params)
     if cached:
         _debug("cache", "research hit")
         return cast(list[dict], cached["results"])
     _debug("cache", "research miss")
-    results = search_backends(args.query, args.n, args.engine, "general", "en", time_range)
+    results = search_backends(
+        args.query, args.n, args.engine, "general", "en", time_range, queries=queries
+    )
     if results and not args.no_cache:
         cache_set("research", cache_params, {"results": results})
     return results
@@ -59,8 +63,10 @@ def mode_research(args: argparse.Namespace) -> int:
     apply_common(args)
     profile = query_profile(args.query)
     time_range = args.time or ("week" if profile.get("needs_recency") else "")
+    queries = search_queries(args.query, profile) if args.smart else [args.query]
     cache_params = {
         "q": args.query,
+        "queries": queries,
         "n": args.n,
         "engine": args.engine,
         "time": time_range,
@@ -68,7 +74,7 @@ def mode_research(args: argparse.Namespace) -> int:
         "smart": args.smart,
     }
 
-    results = _search_phase(args, time_range, cache_params)
+    results = _search_phase(args, time_range, cache_params, queries)
     if not results:
         print(f"_No results for: {args.query}_", file=sys.stderr)
         return 1

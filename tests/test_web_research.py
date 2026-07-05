@@ -163,6 +163,32 @@ class SearchTests(unittest.TestCase):
             )
         self.assertEqual(len(res), 1)
 
+    @patch("urllib.request.urlopen")
+    def test_search_backends_canonical_url_dedup(self, mock_open):
+        """Tracking params and fragments should not create duplicate results."""
+        mock_open.side_effect = _mock_urlopen(
+            {
+                "http://localhost:8080/search": {
+                    "results": [
+                        {
+                            "title": "A",
+                            "url": "https://example.com/page?utm_source=x#frag",
+                            "content": "x",
+                        },
+                        {
+                            "title": "B",
+                            "url": "https://example.com/page",
+                            "content": "x",
+                        },
+                    ]
+                }
+            }
+        )
+        res = wr.search_backends(
+            "q", num=3, engine="searxng", cat="general", lang="en", time_range=""
+        )
+        self.assertEqual(len(res), 1)
+
 
 class ScrapeTests(unittest.TestCase):
     def setUp(self):
@@ -256,6 +282,17 @@ class IntelligenceTests(unittest.TestCase):
         out = wr.expand_queries("q", prof)
         self.assertEqual(out, ["q", "q2"])
 
+    def test_search_queries_adds_bounded_preferred_sites(self):
+        prof = {
+            "expand_queries": ["q exact", "q alternative"],
+            "preferred_sites": ["site:docs.example.com", "not-a-site", "site:github.com"],
+        }
+        out = wr.search_queries("q", prof, max_queries=4)
+        self.assertEqual(
+            out,
+            ["q", "q exact", "q alternative", "q site:docs.example.com"],
+        )
+
 
 class RankingTests(unittest.TestCase):
     """P2: source_quality_score coverage."""
@@ -340,6 +377,14 @@ class SynthesisTests(unittest.TestCase):
 
         out = _render_structured("not json at all")
         self.assertEqual(out, "not json at all")
+
+    def test_compact_source_text_marks_truncation(self):
+        from web_research.features.synthesis.engine import _compact_source_text
+
+        text = ("paragraph one\n\n" + "x" * 2000 + "\n\nparagraph three")
+        out = _compact_source_text(text, 300)
+        self.assertLessEqual(len(out), 300)
+        self.assertIn("[content truncated]", out)
 
 
 class CacheTests(unittest.TestCase):
@@ -716,8 +761,9 @@ class CacheTTLTests(unittest.TestCase):
         _clear_cache()
 
     def test_expired_entry_returns_none(self):
-        import web_research.shared.cache as cache
         import time
+
+        import web_research.shared.cache as cache
 
         cache.set("ttl", {"k": "v"}, {"data": "old"})
         # Manually backdate the cache file

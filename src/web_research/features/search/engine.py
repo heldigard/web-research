@@ -4,9 +4,26 @@ from __future__ import annotations
 
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from web_research.shared.config import MINIMAX_API_KEY, SEARXNG_URL, ZAI_API_KEY
 from web_research.shared.http import _debug, _encode_query, _get_json, _post_json, _warn
+
+_TRACKING_PARAMS = {
+    "fbclid",
+    "gclid",
+    "igshid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+    "ref_src",
+    "spm",
+    "utm_campaign",
+    "utm_content",
+    "utm_medium",
+    "utm_source",
+    "utm_term",
+}
 
 
 def searxng_search(
@@ -120,15 +137,39 @@ def _zai_recency(time_range: str) -> str:
     }.get(time_range, "noLimit")
 
 
-def search_backends(
+def _canonical_url(url: str) -> str:
+    """Normalize result URLs for dedup without changing what users see."""
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    netloc = parsed.netloc.lower()
+    path = parsed.path.rstrip("/") or "/"
+    query_items = [
+        (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k not in _TRACKING_PARAMS
+    ]
+    query = urlencode(query_items, doseq=True)
+    return urlunparse((parsed.scheme.lower(), netloc, path, "", query, ""))
+
+
+def _unique_queries(query: str, queries: list[str] | None = None) -> list[str]:
+    out = []
+    seen = set()
+    for q in [query, *(queries or [])]:
+        q = q.strip()
+        key = q.lower()
+        if q and key not in seen:
+            seen.add(key)
+            out.append(q)
+    return out
+
+
+def _search_one_query(
     query: str, num: int, engine: str, cat: str, lang: str, time_range: str
 ) -> list[dict]:
-    """Dispatch to chosen engine, with SearXNG as default and fallback."""
+    """Dispatch one query to the requested engine plus local fallback."""
     engines = [engine]
     if engine != "searxng":
         engines.append("searxng")
-    seen_urls = set()
-    results = []
 
     def fetch(eng: str) -> list[dict]:
         try:
@@ -141,16 +182,38 @@ def search_backends(
             _warn(eng, str(e))
             return []
 
-    _debug("search", f"engines={engines} num={num}")
     with ThreadPoolExecutor(max_workers=min(len(engines), 2)) as ex:
         batches = list(ex.map(fetch, engines))
 
+    results = []
     for batch in batches:
+        results.extend(batch)
+    return results
+
+
+def search_backends(
+    query: str,
+    num: int,
+    engine: str,
+    cat: str,
+    lang: str,
+    time_range: str,
+    queries: list[str] | None = None,
+) -> list[dict]:
+    """Dispatch to chosen engine, with SearXNG fallback and URL dedup."""
+    seen_urls = set()
+    results = []
+
+    all_queries = _unique_queries(query, queries)
+    _debug("search", f"engine={engine} queries={len(all_queries)} num={num}")
+    for q in all_queries:
+        batch = _search_one_query(q, num, engine, cat, lang, time_range)
         for r in batch:
-            if r["url"] and r["url"] in seen_urls:
+            canonical = _canonical_url(r.get("url", ""))
+            if canonical and canonical in seen_urls:
                 continue
-            if r["url"]:
-                seen_urls.add(r["url"])
+            if canonical:
+                seen_urls.add(canonical)
             results.append(r)
         if len(results) >= num:
             break

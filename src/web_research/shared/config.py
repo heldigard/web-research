@@ -38,6 +38,11 @@ VERBOSE = os.getenv("WEB_RESEARCH_VERBOSE", "") != ""
 CACHE_DIR = os.getenv("WEB_RESEARCH_CACHE_DIR", "")
 CACHE_TTL_SECONDS = int(os.getenv("WEB_RESEARCH_CACHE_TTL", "3600"))
 
+# Hard cap for source text sent to synthesis. Agents often ask for broad
+# research with high --scrape/--max-chars; this keeps the expensive final model
+# focused without changing read/search output.
+WEB_SYNTH_MAX_CONTEXT_CHARS = int(os.getenv("WEB_SYNTH_MAX_CONTEXT_CHARS", "14000"))
+
 # Sibling ecosystem scripts shared across the cross-CLI harness (NOT part of
 # this package): ollama_client.py (embed/generate/is_alive) and cheap_llm.py
 # (cloud cascade shim → graduated project at ~/cheap-llm/). Both are optional;

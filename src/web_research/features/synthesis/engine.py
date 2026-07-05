@@ -7,7 +7,11 @@ import re
 from functools import partial
 
 from web_research.shared.compat import cheap_complete
-from web_research.shared.config import OLLAMA_SYNTH_MODEL, WEB_SYNTH_CLOUD_MODEL
+from web_research.shared.config import (
+    OLLAMA_SYNTH_MODEL,
+    WEB_SYNTH_CLOUD_MODEL,
+    WEB_SYNTH_MAX_CONTEXT_CHARS,
+)
 from web_research.shared.http import _warn
 from web_research.shared.ollama_api import generate
 
@@ -61,8 +65,16 @@ def synthesize(
     as clean markdown.
     """
     ctx_parts = []
+    remaining = WEB_SYNTH_MAX_CONTEXT_CHARS
     for i, d in enumerate(docs, 1):
         text = d.get("extracted") or d["text"]
+        if remaining <= 0:
+            text = "[context budget exhausted]"
+        else:
+            source_slots_left = max(len(docs) - i + 1, 1)
+            budget = min(remaining, max(800, remaining // source_slots_left))
+            text = _compact_source_text(text, budget)
+        remaining = max(0, remaining - len(text))
         ctx_parts.append(f"[{i}] {d['title']}\nURL: {d['url']}\n{text}")
     context = "\n\n---\n\n".join(ctx_parts)
 
@@ -104,6 +116,20 @@ def synthesize(
         if answer:
             return _format_answer(answer, structured)
     return None
+
+
+def _compact_source_text(text: str, max_chars: int) -> str:
+    """Trim source text for synthesis while preserving readable paragraphs."""
+    text = re.sub(r"\n{3,}", "\n\n", text.strip())
+    if len(text) <= max_chars:
+        return text
+
+    marker = "\n\n[content truncated]"
+    clipped = text[: max(0, max_chars - len(marker))].rstrip()
+    last_para = clipped.rfind("\n\n")
+    if last_para >= max_chars // 2:
+        clipped = clipped[:last_para].rstrip()
+    return clipped + marker
 
 
 def _try_synthesize(fn, label: str, prompt: str, system: str) -> str | None:
