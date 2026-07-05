@@ -157,7 +157,7 @@ def _render_structured(answer: str) -> str:
     except json.JSONDecodeError:
         return answer
 
-    sections = []
+    sections: list[str] = []
     _render_answer(data, sections)
     _render_facts(data, sections)
     _render_contradictions(data, sections)
