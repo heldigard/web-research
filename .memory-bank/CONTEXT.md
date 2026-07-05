@@ -1,5 +1,5 @@
 # CONTEXT - Current State
-> Updated: 2026-07-04 (graduation day)
+> Updated: 2026-07-05 (architecture refactor SHIPPED)
 
 ## What this project is
 The `web_research` engine extracted from `~/.claude/scripts/web_research/`
@@ -8,29 +8,52 @@ The `web_research` engine extracted from `~/.claude/scripts/web_research/`
 graduation pattern.
 
 ## Active Focus
-SHIPPED. Repo created public at github.com/heldigard/web-research. Ecosystem
-reconnected via the shim at `~/.claude/scripts/web-research.py`. All 37 tests
-green, ruff clean, harness self-tests pass.
+ARCHITECTURE REFACTOR SHIPPED (2026-07-05). Same public CLI + shim path;
+internals upgraded to typed Settings + HttpClient port + per-backend file
+slices + schema-versioned cache. 63 tests green (was 37), coverage 89%
+(gate 85%), mypy strict-clean, ruff format+lint clean. Live SearXNG
+smoke returns real results through the new architecture.
 
-## Recent Changes (2026-07-04)
-- Restructured flat modules into `features/{search,read,research,ranking,intelligence,synthesis}/` + `shared/`.
-- Extracted the 3 mode-handlers from the 255-LOC `cli.py` into per-feature `command.py`; slimmed `cli.py` to ~28 LOC dispatch.
-- Fixed the cheap_llm/ollama_client coupling: the old `SCRIPT_DIR = parent.parent` trick broke on move → replaced with `ECOSYSTEM_SCRIPTS` env (default `~/.claude/scripts`), graceful degrade preserved.
-- Rewrote `~/.claude/scripts/web-research.py` shim → `WEB_RESEARCH_HOME`-based, imports from `~/web-research/src/`.
-- Added `~/.local/bin/web-research` symlink. Removed the old flat package + old test (committed in `~/.claude` as 4bcbc80).
+## Recent Changes (2026-07-05)
+- Split `features/{search,read}/engine.py` into thin dispatchers + new
+  `backends/<name>.py` per source (SearXNG / MiniMax / Z.AI; Firecrawl /
+  Z.AI reader). Adding a new backend is now one file + one registry line.
+- Replaced module-level config globals with a frozen `Settings` dataclass
+  + env loader (`get_settings()` / `reload_settings(**overrides)`).
+  Externalized `MINIMAX_URL`, `ZAI_SEARCH_URL`, `ZAI_READER_URL` to env.
+  Legacy SCREAMING_CASE names readable via `__getattr__` proxy for BC.
+- Introduced `HttpClient` Protocol + `UrllibHttpClient` default impl.
+  Backends resolve `default_client()` at call time → future swap to
+  `httpx` is `set_default_client(HttpxClient())`, zero backend edits.
+- Cache entries stamped with `SCHEMA_VERSION` + optional `engine_tag`.
+  Bumping model or prompt auto-invalidates stale entries without code.
+- Added CI gates: `ruff format --check` + `mypy src/` + `--cov --cov-fail-under=85`.
+- New `BackendSliceTests` class validates the new architecture end-to-end
+  (registry, dataclass shape, URL canonicalization, schema-version
+  cache invalidation, typed-config reload) without HTTP.
+
+## Previous milestone (2026-07-04 graduation, SHIPPED)
+- Repo: https://github.com/heldigard/web-research (public)
+- 37→63 tests, all green; live SearXNG verified.
+- Restructured flat modules into vertical slices; per-mode `command.py`.
+- Module aliases (`wr.search` / `wr.reader` / `wr.synthesis`) preserve
+  test patch paths through the restructure.
+- Shim reconnection via `~/.claude/scripts/web-research.py` →
+  `WEB_RESEARCH_HOME` env (zero skill edits across 11 web/* routers).
 
 ## Key decision: cheap_llm + ollama_client STAY in ~/.claude/scripts/
-They are shared infrastructure used by 8+ other tools (commit-draft, pr-draft,
-diff-review, test-triage, error-classify, pdf-extract-structured, intent_route,
-extract-tool-output). This engine loads them OPTIONALLY via `ECOSYSTEM_SCRIPTS`
-and degrades gracefully (try/except → None) when absent. cheap_llm is a future
-graduation candidate on its own, but out of scope here.
+Shared infrastructure used by 8+ other tools (commit-draft, pr-draft,
+diff-review, test-triage, error-classify, pdf-extract-structured,
+intent_route, extract-tool-output). This engine loads them OPTIONALLY
+via `WEB_RESEARCH_SCRIPTS` (alias `CHEAP_LLM_HOME`) and degrades gracefully.
 
 ## Blockers / Risks
-- None current. Live verification (steps 2-4 of the plan) depends on SearXNG
-  `:8080`, Firecrawl `:3002`, Ollama `:11434` being up; unit tests are network-mocked.
+- None. All quality gates green; live smoke (SearXNG `:8080`) returns
+  real Rust-2026 results through the new split architecture.
 
 ## Next Steps
-- Update the HOME memory bank (`~/.memory-bank/` or `~/.claude/projects/.../memory/`)
-  with a graduation pointer entry (matches how codeq/smart-trim graduations were recorded).
-- cheap_llm graduation is a separate future project if it grows further.
+- cheap_llm.py graduation (separate future project — 33KB, 8+ consumers).
+- Live-model re-bench if `OLLAMA_SYNTH_MODEL` / `OLLAMA_EMBED` change.
+- Optional: ship the `httpx` HttpClient impl behind a feature flag.
+- Optional: extract `source_quality_score`'s hardcoded 27-domain list
+  to `~/.config/web-research/authority_domains.txt`.

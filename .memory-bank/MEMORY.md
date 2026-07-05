@@ -9,11 +9,12 @@ Graduated 2026-07-04 from `~/.claude/scripts/web_research/` (flat package).
 Public repo: https://github.com/heldigard/web-research
 
 ## Read First
-- CONTEXT.md: current state (graduation + cheap_llm decision)
-- REFERENCE.md: CLI subcommands/flags, engine endpoints, model routing
-- systemPatterns.md: vertical-slice layout, shim reconnection, ECOSYSTEM_SCRIPTS
-- topics/code-architecture.md: package map
-- progress.md: migration milestone
+- CONTEXT.md: current state (architecture refactor shipped 2026-07-05)
+- REFERENCE.md: CLI flags, env vars (incl. URL externalization), model routing
+- systemPatterns.md: HttpClient port, backend protocol, schema-versioned cache
+- ARCHITECTURE.md (repo root): vertical-slice layout, recipes for new backends
+- topics/code-architecture.md: package map + data flow per subcommand
+- progress.md: 2026-07-04 graduation + 2026-07-05 refactor milestones
 
 ## Update Rules
 - Decision -> systemPatterns.md
