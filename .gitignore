@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tags
+*.log
+.memory-bank/.index/
+
+# Orchestration registry churn — auto-regenerated each session by the
+# cross-CLI coordination layer; not source of truth.
+.memory-bank/agent-sessions.md
+.memory-bank/topics/agent-sessions.md
+.memory-bank/topics/foreign-sessions.md

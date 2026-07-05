@@ -1,0 +1,85 @@
+"""Argument-parser construction for the web-research CLI.
+
+Separated from ``cli.py`` to respect the 250-LOC vertical-slice budget.
+Subcommand handlers are injected by the caller to avoid a circular import.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Callable
+
+
+def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
+    """Construct the top-level parser.
+
+    Args:
+        handlers: maps subcommand name ("search"/"research"/"read") to its
+            mode function. Injected by the caller so this module does not
+            import the modes (no cycle).
+    """
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--no-cache", action="store_true", help="bypass disk cache")
+    common.add_argument("--timeout", type=int, help="HTTP timeout (sec); default 30")
+    common.add_argument("--verbose", action="store_true", help="emit backend diagnostics to stderr")
+
+    p = argparse.ArgumentParser(
+        description="Local web research engine (SearXNG+Firecrawl+Ollama+cloud fallback)."
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    ps = sub.add_parser(
+        "search", parents=[common], help="SearXNG search -> clean markdown results."
+    )
+    ps.add_argument("query")
+    ps.add_argument("-n", type=int, default=8)
+    ps.add_argument("--engine", default="searxng", choices=["searxng", "minimax", "zai"])
+    ps.add_argument("--cat", default="general")
+    ps.add_argument("--lang", default="en")
+    ps.add_argument("--time", default="", help="day|week|month|year")
+    ps.add_argument("--rerank", action="store_true", help="Ollama semantic rerank + dedup.")
+    ps.add_argument(
+        "--smart",
+        action="store_true",
+        help="Profile query, score sources, summarize results.",
+    )
+    ps.add_argument(
+        "--summary",
+        action="store_true",
+        help="smart only: synthesize a structured answer from snippets.",
+    )
+    ps.add_argument("--json", action="store_true", help="emit results as JSON.")
+    ps.set_defaults(func=handlers["search"])
+
+    pr = sub.add_parser(
+        "research",
+        parents=[common],
+        help="Search -> scrape top K -> Ollama/cloud synthesis w/ citations.",
+    )
+    pr.add_argument("query")
+    pr.add_argument("-n", type=int, default=6, help="search results to pull")
+    pr.add_argument("--scrape", type=int, default=3, help="how many to fully scrape")
+    pr.add_argument("--max-chars", type=int, default=4000, dest="max_chars")
+    pr.add_argument("--engine", default="searxng", choices=["searxng", "minimax", "zai"])
+    pr.add_argument("--time", default="")
+    pr.add_argument("--answer", action="store_true", help="direct Q&A style instead of report")
+    pr.add_argument(
+        "--smart",
+        action="store_true",
+        help="profile, focused extract, structured synthesis",
+    )
+    pr.set_defaults(func=handlers["research"])
+
+    prd = sub.add_parser(
+        "read",
+        parents=[common],
+        help="Read one URL -> markdown via Firecrawl or Z.AI reader.",
+    )
+    prd.add_argument("url")
+    prd.add_argument("--engine", default="firecrawl", choices=["firecrawl", "zai"])
+    prd.add_argument("--wait", type=int, default=0)
+    prd.add_argument("--zai-timeout", type=int, default=20, help="Z.AI reader timeout")
+    prd.add_argument("--max-chars", type=int, default=12000)
+    prd.set_defaults(func=handlers["read"])
+
+    return p
