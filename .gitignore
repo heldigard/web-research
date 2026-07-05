@@ -16,6 +16,9 @@ htmlcov/
 *.log
 .memory-bank/.index/
 
+# Local Claude Code harness artifacts (auto-setup marker, orchestrator registry).
+.claude/
+
 # Orchestration registry churn — auto-regenerated each session by the
 # cross-CLI coordination layer; not source of truth.
 .memory-bank/agent-sessions.md
