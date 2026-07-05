@@ -1,55 +1,220 @@
-"""Environment configuration for web-research engine."""
+"""Typed configuration loaded from environment.
+
+Single source of truth for every runtime knob. Modules read attributes from
+:func:`get_settings` instead of poking at module-level globals, which makes
+the package testable (reload settings per-test) and version-aware (cache
+keys, log tags, telemetry).
+
+Use :func:`reload_settings` to re-read env after a CLI override
+(``--timeout`` / ``--verbose``) — the fields that the CLI can influence
+are mutated on the singleton; the rest are reset from the environment.
+"""
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, replace  # noqa: F401 — replace kept for legacy callers
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8080").rstrip("/")
-FC_URL = os.getenv("FC_URL", "http://localhost:3002").rstrip("/")
-FC_API_KEY = os.getenv("FC_API_KEY", "fc-local-dev-key-2024")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv(
-    "OLLAMA_MODEL", "qwen3.5:4b"
-)  # universal clean default (re-bench 2026-07-04: code_gen #3, smart_trim #14)
-# Synthesis model: the FINAL cited answer the controller/user reads. Per-function
-# override (re-bench 2026-07-04, Ollama 0.31.1): web_synth combined #1 =
-# batiai/gemma4-e4b:q4 (5.0GB, gemma4 e4b Q4). crow:9b was the prior winner;
-# now demoted to fallback. qwen3.5:4b stays for query_profile + focused_extract.
-OLLAMA_SYNTH_MODEL = os.getenv("OLLAMA_SYNTH_MODEL", "batiai/gemma4-e4b:q4")
-# Cloud fallback for synthesis (fires only when local crow:9b is down). A
-# frontier-class ECONOMICAL model gives better CITED JUDGMENT than the
-# signal-distillation ling tier on multi-source synthesis: deepseek-v4-flash
-# (1M ctx, 79% SWE-bench, $0.14/$0.28) filters noise + structures the
-# contradiction analysis better than ling-2.6-flash (bench 2026-06-28:
-# omits irrelevant pricing/output, distinguishes config-variance vs true
-# contradiction). $0.0002/call, rare path → negligible cost. No :free routes
-# (user policy: paid latest economical only).
-WEB_SYNTH_CLOUD_MODEL = os.getenv("WEB_SYNTH_CLOUD_MODEL", "deepseek/deepseek-v4-flash")
-OLLAMA_EMBED = os.getenv(
-    "OLLAMA_EMBED", "embeddinggemma"
-)  # eval winner (MRR 0.724); was nomic-embed-text then qwen3-embedding:4b
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-ZAI_API_KEY = os.getenv("ZAI_API_KEY") or os.getenv("Z_AI_API_KEY", "")
 
-TIMEOUT = int(os.getenv("WEB_RESEARCH_TIMEOUT", "30"))
-VERBOSE = os.getenv("WEB_RESEARCH_VERBOSE", "") != ""
+def _env_str(name: str, default: str = "") -> str:
+    return os.getenv(name, default)
 
-CACHE_DIR = os.getenv("WEB_RESEARCH_CACHE_DIR", "")
-CACHE_TTL_SECONDS = int(os.getenv("WEB_RESEARCH_CACHE_TTL", "3600"))
 
-# Hard cap for source text sent to synthesis. Agents often ask for broad
-# research with high --scrape/--max-chars; this keeps the expensive final model
-# focused without changing read/search output.
-WEB_SYNTH_MAX_CONTEXT_CHARS = int(os.getenv("WEB_SYNTH_MAX_CONTEXT_CHARS", "14000"))
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
-# Sibling ecosystem scripts shared across the cross-CLI harness (NOT part of
-# this package): ollama_client.py (embed/generate/is_alive) and cheap_llm.py
-# (cloud cascade shim → graduated project at ~/cheap-llm/). Both are optional;
-# the engine degrades gracefully when absent. Override only if your harness
-# lives elsewhere. Defaults to ~/.claude/scripts/.
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("", "0", "false", "no", "off")
+
+
+# Default-model notes are kept inline (not broken out into separate constants)
+# because they document a single-bench decision recorded in MEMORY.md.
+_OLLAMA_DEFAULT_MODEL = "qwen3.5:4b"
+_OLLAMA_DEFAULT_SYNTH_MODEL = "batiai/gemma4-e4b:q4"  # web_synth winner 2026-07-04
+_OLLAMA_DEFAULT_EMBED = "embeddinggemma"  # MRR 0.724 eval winner
+_WEB_SYNTH_DEFAULT_CLOUD = "deepseek/deepseek-v4-flash"
+
+
+# Bump when a config field, prompt template, or backend behavior changes
+# in a way that makes existing on-disk cache entries stale. Cache entries
+# stamped with a prior version are invalidated automatically.
+SCHEMA_VERSION = 1
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Resolved runtime settings. Constructed via :func:`load_settings`."""
+
+    # Self-hosted service endpoints
+    searxng_url: str = "http://localhost:8080"
+    firecrawl_url: str = "http://localhost:3002"
+    firecrawl_api_key: str = "fc-local-dev-key-2024"  # local default; override in prod
+    ollama_url: str = "http://localhost:11434"
+
+    # Ollama model assignments
+    ollama_model: str = _OLLAMA_DEFAULT_MODEL
+    ollama_synth_model: str = _OLLAMA_DEFAULT_SYNTH_MODEL
+    ollama_embed: str = _OLLAMA_DEFAULT_EMBED
+
+    # Direct API integrations — endpoints externalized so proxies / on-prem
+    # forks can repoint without code edits.
+    minimax_api_key: str = ""
+    minimax_url: str = "https://api.minimax.io/v1/coding_plan/search"
+    zai_api_key: str = ""
+    zai_search_url: str = "https://api.z.ai/api/paas/v4/web_search"
+    zai_reader_url: str = "https://api.z.ai/api/paas/v4/reader"
+
+    # Cloud synthesis fallback
+    web_synth_cloud_model: str = _WEB_SYNTH_DEFAULT_CLOUD
+
+    # HTTP / runtime
+    timeout: int = 30
+    verbose: bool = False
+
+    # Cache
+    cache_dir: str = ""  # empty → ~/.cache/web-research
+    cache_ttl_seconds: int = 3600
+
+    # Synthesis budget — hard cap for source text sent to the final model
+    web_synth_max_context_chars: int = 14000
+
+    # Sibling harness scripts (ollama_client.py, cheap_llm.py) — see compat.py
+    ecosystem_scripts: str = ""
+
+    # Schema version for cache invalidation (increment on breaking changes)
+    schema_version: int = SCHEMA_VERSION
+
+
+def load_settings() -> Settings:
+    """Resolve settings from environment. Returns a new frozen instance."""
+    return Settings(
+        searxng_url=_env_str("SEARXNG_URL", "http://localhost:8080").rstrip("/"),
+        firecrawl_url=_env_str("FC_URL", "http://localhost:3002").rstrip("/"),
+        firecrawl_api_key=_env_str("FC_API_KEY", Settings.firecrawl_api_key),
+        ollama_url=_env_str("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
+        ollama_model=_env_str("OLLAMA_MODEL", _OLLAMA_DEFAULT_MODEL),
+        ollama_synth_model=_env_str("OLLAMA_SYNTH_MODEL", _OLLAMA_DEFAULT_SYNTH_MODEL),
+        ollama_embed=_env_str("OLLAMA_EMBED", _OLLAMA_DEFAULT_EMBED),
+        minimax_api_key=_env_str("MINIMAX_API_KEY", ""),
+        minimax_url=_env_str("MINIMAX_URL", Settings.minimax_url).rstrip("/"),
+        zai_api_key=_env_str("ZAI_API_KEY") or _env_str("Z_AI_API_KEY", ""),
+        zai_search_url=_env_str("ZAI_SEARCH_URL", Settings.zai_search_url).rstrip("/"),
+        zai_reader_url=_env_str("ZAI_READER_URL", Settings.zai_reader_url).rstrip("/"),
+        web_synth_cloud_model=_env_str("WEB_SYNTH_CLOUD_MODEL", _WEB_SYNTH_DEFAULT_CLOUD),
+        timeout=_env_int("WEB_RESEARCH_TIMEOUT", 30),
+        verbose=_env_bool("WEB_RESEARCH_VERBOSE", False),
+        cache_dir=_env_str("WEB_RESEARCH_CACHE_DIR", ""),
+        cache_ttl_seconds=_env_int("WEB_RESEARCH_CACHE_TTL", 3600),
+        web_synth_max_context_chars=_env_int("WEB_SYNTH_MAX_CONTEXT_CHARS", 14000),
+        ecosystem_scripts=(
+            _env_str("WEB_RESEARCH_SCRIPTS")
+            or _env_str("CHEAP_LLM_HOME")
+            or str(Path.home() / ".claude" / "scripts")
+        ),
+        schema_version=SCHEMA_VERSION,
+    )
+
+
+# Module-level singleton — replaced via reload_settings() when CLI flags
+# override env values (timeout, verbose). Frozen dataclass: setters mutate
+# the singleton via ``replace``.
+_settings: Settings = load_settings()
+
+
+def get_settings() -> Settings:
+    """Return the current settings singleton."""
+    return _settings
+
+
+def reload_settings(**overrides: object) -> Settings:
+    """Re-resolve from env, optionally overriding fields.
+
+    Used by ``cli_helpers.apply_common`` to push ``--timeout`` / ``--verbose``
+    flags into the runtime settings without touching module globals. Also
+    clears any stale legacy ``__dict__`` cache (e.g. from earlier tests that
+    wrote ``config.TIMEOUT = 99`` directly) so the proxy reads through to
+    the new singleton.
+    """
+    global _settings
+    fresh = load_settings()
+    if overrides:
+        fresh = replace(fresh, **overrides)  # type: ignore[arg-type]
+    _settings = fresh
+    for name in (*_LEGACY_NAME_MAP.keys(), *_MODERN_ATTRS):
+        globals().pop(name, None)
+    return _settings
+
+
+# -- Back-compat shims -----------------------------------------------------
+# Legacy SCREAMING_CASE names (``config.MINIMAX_API_KEY``, ``config.TIMEOUT``)
+# are imported by the rest of the package and used by tests that do
+# ``patch.object(wr.search, "MINIMAX_API_KEY", ...)``. Read-only proxy:
+# modern code should use ``settings.x`` or ``get_settings().x``.
 #
-# Canonical env var: WEB_RESEARCH_SCRIPTS (matches CODEQ_HARNESS_SCRIPTS pattern).
-# Deprecated alias: CHEAP_LLM_HOME (kept for docs that still reference it).
-_scripts_env = os.getenv("WEB_RESEARCH_SCRIPTS") or os.getenv("CHEAP_LLM_HOME", "")
-ECOSYSTEM_SCRIPTS = _scripts_env or str(Path.home() / ".claude" / "scripts")
+# Writes via ``config.X = Y`` go to module ``__dict__`` directly (Python does
+# not invoke module ``__setattr__`` for normal assignments). To mutate
+# settings, call :func:`reload_settings` instead.
+
+_LEGACY_NAME_MAP: dict[str, str] = {
+    "SEARXNG_URL": "searxng_url",
+    "FC_URL": "firecrawl_url",
+    "FC_API_KEY": "firecrawl_api_key",
+    "OLLAMA_URL": "ollama_url",
+    "OLLAMA_MODEL": "ollama_model",
+    "OLLAMA_SYNTH_MODEL": "ollama_synth_model",
+    "OLLAMA_EMBED": "ollama_embed",
+    "MINIMAX_API_KEY": "minimax_api_key",
+    "ZAI_API_KEY": "zai_api_key",
+    "TIMEOUT": "timeout",
+    "VERBOSE": "verbose",
+    "CACHE_DIR": "cache_dir",
+    "CACHE_TTL_SECONDS": "cache_ttl_seconds",
+    "WEB_SYNTH_CLOUD_MODEL": "web_synth_cloud_model",
+    "WEB_SYNTH_MAX_CONTEXT_CHARS": "web_synth_max_context_chars",
+    "ECOSYSTEM_SCRIPTS": "ecosystem_scripts",
+}
+_MODERN_ATTRS = set(Settings.__dataclass_fields__.keys())
+
+
+def __getattr__(name: str) -> object:
+    if name == "_settings":
+        return _settings
+    if name in _LEGACY_NAME_MAP:
+        return getattr(_settings, _LEGACY_NAME_MAP[name])
+    if name in _MODERN_ATTRS:
+        return getattr(_settings, name)
+    raise AttributeError(f"module 'web_research.shared.config' has no attribute {name!r}")
+
+
+# Type stubs for mypy / pyright — these names are resolved at runtime via
+# ``__getattr__`` above but need static typing for downstream modules that
+# import them as ``from .config import MINIMAX_API_KEY``.
+if TYPE_CHECKING:
+    SEARXNG_URL: str
+    FC_URL: str
+    FC_API_KEY: str
+    OLLAMA_URL: str
+    OLLAMA_MODEL: str
+    OLLAMA_SYNTH_MODEL: str
+    OLLAMA_EMBED: str
+    MINIMAX_API_KEY: str
+    ZAI_API_KEY: str
+    TIMEOUT: int
+    VERBOSE: bool
+    CACHE_DIR: str
+    CACHE_TTL_SECONDS: int
+    WEB_SYNTH_CLOUD_MODEL: str
+    WEB_SYNTH_MAX_CONTEXT_CHARS: int
+    ECOSYSTEM_SCRIPTS: str

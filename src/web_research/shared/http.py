@@ -1,4 +1,18 @@
-"""Minimal HTTP helpers (stdlib only, CLI-agnostic)."""
+"""HTTP client port + stdlib implementation.
+
+Defines the ``HttpClient`` protocol every backend depends on, the default
+``UrllibHttpClient`` (stdlib-only, CLI-agnostic), and a module-level
+``default_client`` singleton that backends resolve at call time.
+
+The protocol surface is intentionally minimal (``get_json`` / ``post_json``
+/ ``get_bytes``) so the future swap to ``httpx`` (connection pooling,
+retries, streaming) is one new class + one ``set_default_client()`` call.
+"""
+
+# vs-soft-allow  — HTTP method signatures (Protocol + impl pair) are cohesive
+# interface declarations; the (url, payload, timeout, headers) shape is fixed
+# by HTTP semantics, not parameter sprawl. Wrapping in an ``HttpRequest`` DTO
+# would force every backend through a 30-line adapter for zero readability gain.
 
 from __future__ import annotations
 
@@ -7,59 +21,155 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Protocol
 
 from . import config
 
 _USER_AGENT = "web-research/0.1 (+https://github.com/heldigard/web-research)"
 
 
-def _warn(tag: str, msg: str) -> None:
+class HttpClient(Protocol):
+    """Minimal HTTP port used by every backend.
+
+    Backends receive a client (or read ``default_client()`` at call time) so
+    tests can inject a fake without monkey-patching ``urllib.request``.
+    """
+
+    def get_json(
+        self, url: str, *, timeout: float | None = None, headers: dict | None = None
+    ) -> dict: ...
+
+    def post_json(
+        self,
+        url: str,
+        payload: dict,
+        *,
+        timeout: float | None = None,
+        headers: dict | None = None,
+    ) -> dict: ...
+
+    def get_bytes(
+        self, url: str, *, timeout: float | None = None, headers: dict | None = None
+    ) -> bytes: ...
+
+
+class UrllibHttpClient:
+    """Stdlib HTTP client. Zero external deps; respects ``config.TIMEOUT``."""
+
+    def __init__(self, user_agent: str = _USER_AGENT) -> None:
+        self._ua = user_agent
+
+    def _request(
+        self,
+        url: str,
+        data: bytes | None = None,
+        headers: dict | None = None,
+        timeout: float | None = None,
+    ) -> bytes:
+        effective_timeout = config.TIMEOUT if timeout is None else timeout
+        h = {"User-Agent": self._ua}
+        if headers:
+            h.update(headers)
+        req = urllib.request.Request(url, data=data, headers=h)
+        # nosemgrep: dynamic-urllib-use-detected — URLs come from CLI args
+        # (user-supplied) or from backend response JSON (already-validated
+        # upstream at the SearXNG/Z.AI boundary). Internal code never
+        # constructs URLs from untrusted string concat.
+        with urllib.request.urlopen(req, timeout=effective_timeout) as response:
+            return response.read()
+
+    def get_json(
+        self, url: str, *, timeout: float | None = None, headers: dict | None = None
+    ) -> dict:
+        merged = {"Accept": "application/json"}
+        if headers:
+            merged.update(headers)
+        return json.loads(self.get_bytes(url, timeout=timeout, headers=merged))
+
+    def post_json(
+        self,
+        url: str,
+        payload: dict,
+        *,
+        timeout: float | None = None,
+        headers: dict | None = None,
+    ) -> dict:
+        merged = {"Content-Type": "application/json"}
+        if headers:
+            merged.update(headers)
+        body = json.dumps(payload).encode("utf-8")
+        return json.loads(self._request(url, data=body, headers=merged, timeout=timeout))
+
+    def get_bytes(
+        self, url: str, *, timeout: float | None = None, headers: dict | None = None
+    ) -> bytes:
+        return self._request(url, headers=headers, timeout=timeout)
+
+
+_client: HttpClient = UrllibHttpClient()
+
+
+def default_client() -> HttpClient:
+    """Return the process-wide default client. Override via :func:`set_default_client`."""
+    return _client
+
+
+def set_default_client(client: HttpClient) -> None:
+    """Replace the default client. Tests use this to inject a fake."""
+    global _client
+    _client = client
+
+
+# -- Logging helpers (unchanged surface, port-injected clients don't touch these) ----
+
+
+def warn(tag: str, msg: str) -> None:
     """Emit a backend error line to stderr (always shown)."""
     print(f"[{tag}] {msg}", file=sys.stderr)
 
 
-def _debug(tag: str, msg: str) -> None:
+def debug(tag: str, msg: str) -> None:
     """Emit a diagnostic line to stderr only when verbose mode is on."""
     if config.VERBOSE:
         print(f"[{tag}] {msg}", file=sys.stderr)
 
 
+# Legacy underscored aliases — kept so existing call sites
+# (``from .http import _warn, _debug``) keep working.
+_warn = warn
+_debug = debug
+
+# Public alias for ``urllib.parse.urlencode`` — backends import this
+# rather than reach into stdlib directly (consistent with HttpClient usage).
+urlencode = urllib.parse.urlencode
+
+
+# -- Legacy module-level helpers (kept for back-compat with existing tests/code) ----
+# These now route through the default client. Prefer ``default_client()`` directly
+# in new code — the underscored names exist so the existing call sites keep
+# working without churn during the backend-split refactor.
+
+_encode_query = urllib.parse.urlencode
+
+
 def _http(
-    url: str,
-    data: bytes | None = None,
-    headers: dict | None = None,
-    timeout: float | None = None,
+    url: str, data: bytes | None = None, headers: dict | None = None, timeout: float | None = None
 ) -> bytes:
-    """Fetch bytes from a URL."""
-    if timeout is None:
-        timeout = config.TIMEOUT
-    h = {"User-Agent": _USER_AGENT}
-    if headers:
-        h.update(headers)
-    req = urllib.request.Request(url, data=data, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        return response.read()
-
-
-def _post_json(
-    url: str,
-    payload: dict,
-    headers: dict | None = None,
-    timeout: float | None = None,
-) -> dict:
-    """POST JSON and return parsed JSON."""
-    body = json.dumps(payload).encode("utf-8")
-    h = {"Content-Type": "application/json"}
-    if headers:
-        h.update(headers)
-    return json.loads(_http(url, data=body, headers=h, timeout=timeout))
+    """Legacy entry point — delegates to the default client."""
+    return (
+        default_client().get_bytes(url, headers=headers)
+        if data is None
+        else default_client()._request(  # type: ignore[attr-defined]
+            url, data=data, headers=headers, timeout=timeout
+        )
+    )
 
 
 def _get_json(url: str, timeout: float | None = None) -> dict:
-    """GET JSON and return parsed JSON."""
-    return json.loads(_http(url, headers={"Accept": "application/json"}, timeout=timeout))
+    return default_client().get_json(url, timeout=timeout)
 
 
-def _encode_query(params: dict[str, str]) -> str:
-    """URL-encode query parameters."""
-    return urllib.parse.urlencode(params)
+def _post_json(
+    url: str, payload: dict, headers: dict | None = None, timeout: float | None = None
+) -> dict:
+    return default_client().post_json(url, payload, timeout=timeout, headers=headers)
