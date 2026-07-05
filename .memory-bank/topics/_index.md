@@ -3,3 +3,4 @@
 
 ## Topics
 - [code-architecture.md](code-architecture.md) — package map, data flow per subcommand, coupling rules, test contract.
+- [foreign-sessions](foreign-sessions.md)

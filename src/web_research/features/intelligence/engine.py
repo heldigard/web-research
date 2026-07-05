@@ -116,7 +116,9 @@ def focused_extract(text: str, query: str, intent: str = "general") -> str:
         "and a note about date/version if present. If nothing is relevant, "
         "reply exactly: NO_RELEVANT_CONTENT."
     )
-    prompt = f"Query: {query}\nIntent: {intent}\nPage text:\n{text[:_FOCUSED_LLM_CHARS]}\n\nExtraction:"
+    prompt = (
+        f"Query: {query}\nIntent: {intent}\nPage text:\n{text[:_FOCUSED_LLM_CHARS]}\n\nExtraction:"
+    )
     raw = generate(prompt, system=system, temperature=0.1)
     if raw and "NO_RELEVANT_CONTENT" not in raw:
         return raw.strip()

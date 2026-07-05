@@ -10,6 +10,7 @@ Production entry points:
 
 This file exists only for quick local iteration from ~/web-research/.
 """
+
 from __future__ import annotations
 
 import sys
