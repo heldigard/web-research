@@ -24,6 +24,7 @@ def _clear_cache() -> None:
         rmtree(cache_dir)
     # Reset the is_alive() TTL cache so mock_alive patches don't bleed across tests.
     from web_research.shared.ollama_api import _bust_alive_cache
+
     _bust_alive_cache()
 
 

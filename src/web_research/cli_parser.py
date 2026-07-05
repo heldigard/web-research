@@ -33,9 +33,7 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Local web research engine (SearXNG+Firecrawl+Ollama+cloud fallback).",
     )
-    p.add_argument(
-        "--version", action="version", version=f"web-research {_pkg_version}"
-    )
+    p.add_argument("--version", action="version", version=f"web-research {_pkg_version}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     ps = sub.add_parser(
