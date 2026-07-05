@@ -52,8 +52,9 @@ Common flags: `--no-cache`, `--timeout N`, `--verbose`.
 
 ## Ecosystem integration
 
-The wired entry point is the shim at `~/.claude/scripts/web-research.py`, which
-imports `web_research.cli.main` from this project. Skills invoke it as
+The wired entry point is the shim at `~/.claude/scripts/web-research.py`, copied
+from `shims/web-research.py`, which imports `web_research.cli.main` from this
+project. Skills invoke it as
 `python3 ~/.claude/scripts/web-research.py <cmd>`, so the 11 web/search router
 skills (`web-search`, `search-smart`, `web-reader`, `web-research`, `searxng`,
 `zai-search`, `minimax-search`, …) need no edits when the engine moves.
