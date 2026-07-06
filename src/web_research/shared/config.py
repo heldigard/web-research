@@ -42,7 +42,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # Default-model notes are kept inline (not broken out into separate constants)
 # because they document a single-bench decision recorded in MEMORY.md.
 _OLLAMA_DEFAULT_MODEL = "qwen3.5:4b"
-_OLLAMA_DEFAULT_SYNTH_MODEL = "batiai/gemma4-e4b:q4"  # web_synth winner 2026-07-04
+_OLLAMA_DEFAULT_SYNTH_MODEL = (
+    "jaahas/crow:9b"  # web_synth winner 2026-07-05 r5 (e4b collapsed in tb)
+)
 _OLLAMA_DEFAULT_EMBED = "embeddinggemma"  # MRR 0.724 eval winner
 _WEB_SYNTH_DEFAULT_CLOUD = "deepseek/deepseek-v4-flash"
 
