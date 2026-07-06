@@ -16,8 +16,10 @@ try:
     from importlib.metadata import version as _version
 
     __version__ = _version("web-research")
+    if __version__ == "0.0.0":
+        from ._version import __version__
 except Exception:  # pragma: no cover — installed vs source-tree
-    __version__ = "0.0.0"
+    from ._version import __version__
 
 from .cli import main
 from .features.intelligence.engine import (

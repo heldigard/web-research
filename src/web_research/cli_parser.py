@@ -13,8 +13,10 @@ try:
     from importlib.metadata import version as _version
 
     _pkg_version = _version("web-research")
+    if _pkg_version == "0.0.0":
+        from web_research._version import __version__ as _pkg_version
 except Exception:  # pragma: no cover
-    _pkg_version = "0.0.0"
+    from web_research._version import __version__ as _pkg_version
 
 
 def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:

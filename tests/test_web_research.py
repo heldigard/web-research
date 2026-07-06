@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import web_research as wr  # noqa: E402
 import web_research.shared.config as _config  # noqa: E402
+from web_research.cli_parser import build_parser  # noqa: E402
 
 
 def _clear_cache() -> None:
@@ -49,6 +50,10 @@ class FakeResponse:
         return False
 
 
+def _noop_handler(_args):
+    return 0
+
+
 def _mock_urlopen(response_map: dict):
     def side_effect(req, **kwargs):
         url = req.full_url
@@ -63,6 +68,23 @@ def _mock_urlopen(response_map: dict):
 class SearchTests(unittest.TestCase):
     def setUp(self):
         _clear_cache()
+
+    def test_version_fallback_not_zero(self):
+        self.assertEqual(wr.__version__, "0.1.0")
+
+    def test_cli_version_uses_package_version(self):
+        parser = build_parser(
+            {
+                "search": _noop_handler,
+                "research": _noop_handler,
+                "read": _noop_handler,
+            }
+        )
+        buf = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(buf):
+            parser.parse_args(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertIn("web-research 0.1.0", buf.getvalue())
 
     @patch("urllib.request.urlopen")
     def test_searxng_search(self, mock_open):
