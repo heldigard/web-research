@@ -12,3 +12,4 @@
   swap procedure. **Read this before adding a new search source or reader.**
 - `README.md` — install + entry points + CLI quick reference.
 - `CLAUDE.md` — project nature, conventions, commands.
+- [session-handoffs](session-handoffs.md)

@@ -120,10 +120,13 @@ def load_settings() -> Settings:
         cache_dir=_env_str("WEB_RESEARCH_CACHE_DIR", ""),
         cache_ttl_seconds=_env_int("WEB_RESEARCH_CACHE_TTL", 3600),
         web_synth_max_context_chars=_env_int("WEB_SYNTH_MAX_CONTEXT_CHARS", 14000),
+        # ECOSYSTEM_SCRIPTS must hold BOTH ollama_client.py and the cheap_llm.py
+        # shim (~/.claude/scripts). Do NOT fall back to CHEAP_LLM_HOME — that
+        # points at the cheap-llm PROJECT ROOT, which has cheap_llm.py but NOT
+        # ollama_client.py, breaking the ollama_client import in compat.py.
+        # The shim resolves CHEAP_LLM_HOME internally to find the real module.
         ecosystem_scripts=(
-            _env_str("WEB_RESEARCH_SCRIPTS")
-            or _env_str("CHEAP_LLM_HOME")
-            or str(Path.home() / ".claude" / "scripts")
+            _env_str("WEB_RESEARCH_SCRIPTS") or str(Path.home() / ".claude" / "scripts")
         ),
         schema_version=SCHEMA_VERSION,
     )

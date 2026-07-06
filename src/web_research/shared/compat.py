@@ -6,10 +6,10 @@ package import, before any feature module tries to consume these helpers.
 
 The harness helpers ``ollama_client`` and ``cheap_llm`` live under
 ``~/.claude/scripts/`` (resolved via ``ECOSYSTEM_SCRIPTS`` from config,
-which respects ``WEB_RESEARCH_SCRIPTS`` / ``CHEAP_LLM_HOME`` env vars)
-and are NOT on ``sys.path`` by default. This module injects them and
-exposes the optional imports so every consumer gets consistent names
-with graceful ``None`` degradation when the harness is absent.
+which respects the ``WEB_RESEARCH_SCRIPTS`` env var) and are NOT on
+``sys.path`` by default. This module injects them and exposes the optional
+imports so every consumer gets consistent names with graceful ``None``
+degradation when the harness is absent.
 """
 
 # pyright: reportMissingImports=false
@@ -38,7 +38,14 @@ try:
 except Exception:  # pragma: no cover — env-dependent
     oc = None  # type: ignore[assignment]
 
+# Contract floor this consumer needs (cheap_llm SemVer >= 1.1). The require()
+# gate fails fast on version drift instead of a cryptic mid-run error.
+_CHEAP_LLM_MIN_VERSION = "1.1"
+
 try:
+    import cheap_llm
+
+    cheap_llm.require(_CHEAP_LLM_MIN_VERSION)
     from cheap_llm import cheap_complete  # cloud LLM cascade
 except Exception:  # pragma: no cover — env-dependent
     cheap_complete = None  # type: ignore[assignment]
