@@ -5,14 +5,17 @@
 
 ## P1 — Graduate `ollama_client` to `~/ollama-client/` (HIGH value) ✅ SHIPPED 2026-07-08
 
-**Status**: phase-1 complete. `~/ollama-client/` created (SemVer 1.0.0,
-`require()`, flat module mirroring cheap-llm). `~/.claude/scripts/ollama_client.py`
-is now a re-export shim. web-research migrated as first real consumer
-(`oc.require('1.0')`). Committed locally (`~/ollama-client/` 1c2697b;
-`~/.claude` shim 31d23c7 on branch `feat/ollama-client-graduation`, main
-untouched). **NOT pushed** — awaits user ok (creates public github.com/
-heldigard/ollama-client). **Phase-2 (migrate codeq/smart-trim/prompt-improve
-off the shim to the real package) is incremental follow-up.**
+**Status**: **COMPLETE** (pushed 2026-07-08). `~/ollama-client/` created (SemVer
+1.0.0, `require()`, flat module mirroring cheap-llm) → public at
+github.com/heldigard/ollama-client. `~/.claude/scripts/ollama_client.py` is now a
+re-export shim (FF-merged to main locally; no remote on ~/.claude). Three of four
+consumers migrated to the real `require('1.0')` contract: web-research
+(`shared/compat.py`), smart-trim, prompt-improve (branches pushed; same trivial
+module-level gate). **codeq is the remaining follow-up**: its `shared/llm.py`
+uses lazy in-function imports with its own error-return tuple, so adding the gate
+is a small design decision (helper vs per-call), not the 1-line change the others
+were — deferred deliberately to avoid risking the code-intelligence tool itself.
+The shim keeps codeq fully functional in the meantime.
 
 **Problem**: `ollama_client.py` is a 756-line flat script in `~/.claude/scripts/`
 consumed by **four** projects (`codeq`, `smart-trim`, `prompt-improve`,
@@ -95,7 +98,7 @@ bootstrap in their `compat.py`.
 
 ## Recommended order
 
-> **2026-07-08 status**: P1 (phase-1) and P4 SHIPPED. P2/P3/P5 deferred.
+> **2026-07-08 status**: P1 COMPLETE (all 3 trivial consumers migrated + pushed; codeq follow-up), P4 SHIPPED. P2/P3/P5 deferred.
 
 1. **P1** (graduate `ollama_client`) ✅ — unblocks P3 and removes the root coupling smell.
 2. **P2** (model registry) — quick win, immediately useful, zero breakage.
