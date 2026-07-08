@@ -11,6 +11,7 @@ from typing import cast
 
 from .base import Page, PageReader, tracking_params
 from .firecrawl import FirecrawlReader
+from .html import HtmlReader
 from .zai_reader import ZaiReader
 
 # All known readers, keyed by ``--engine`` name. The dispatcher looks up
@@ -18,6 +19,7 @@ from .zai_reader import ZaiReader
 BUILTIN_READERS: dict[str, type[PageReader]] = {
     "firecrawl": cast(type[PageReader], FirecrawlReader),
     "zai": cast(type[PageReader], ZaiReader),
+    "html": cast(type[PageReader], HtmlReader),
 }
 
 
@@ -32,6 +34,7 @@ def build_reader(name: str, **kwargs: object) -> PageReader | None:
 __all__ = [
     "BUILTIN_READERS",
     "FirecrawlReader",
+    "HtmlReader",
     "Page",
     "PageReader",
     "ZaiReader",

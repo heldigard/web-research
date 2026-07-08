@@ -1,4 +1,4 @@
-"""``read`` subcommand: fetch one URL into markdown via Firecrawl or Z.AI reader."""
+"""``read`` subcommand: fetch one URL into markdown via the reader chain."""
 
 from __future__ import annotations
 
@@ -6,32 +6,22 @@ import argparse
 import sys
 from typing import cast
 
-from web_research.features.read.engine import firecrawl_scrape, zai_reader
+from web_research.features.read.engine import read_with_fallback
 from web_research.shared.cache import get as cache_get
 from web_research.shared.cache import set as cache_set
 from web_research.shared.cli_helpers import apply_common
-from web_research.shared.config import ZAI_API_KEY
 from web_research.shared.http import _debug
 
 
 def _fetch_markdown(args: argparse.Namespace) -> str:
-    """Try the requested engine first, then Firecrawl, then Z.AI if a key is set."""
-    engines = [args.engine]
-    if args.engine != "firecrawl":
-        engines.append("firecrawl")
-    if "zai" not in engines and ZAI_API_KEY:
-        engines.append("zai")
-    for eng in engines:
-        md = _fetch_one(eng, args)
-        if md:
-            return md
-    return ""
-
-
-def _fetch_one(eng: str, args: argparse.Namespace) -> str:
-    if eng == "zai":
-        return zai_reader(args.url, timeout=args.zai_timeout)
-    return firecrawl_scrape(args.url, wait=args.wait)
+    """Delegate to the unified reader chain (respects robots + html fallback)."""
+    return read_with_fallback(
+        args.url,
+        engine=args.engine,
+        wait=args.wait,
+        zai_timeout=args.zai_timeout,
+        respect_robots=not getattr(args, "no_robots", False),
+    )
 
 
 def mode_read(args: argparse.Namespace) -> int:
