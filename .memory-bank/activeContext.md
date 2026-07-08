@@ -1,16 +1,10 @@
 # Active Context
-- 2026-07-06: Smart trim summary (minimal).
-- ## Preserved Negative Constraints
-- - 1. DO NOT re-read files you already know from this summary
-- - 2. DO NOT read screenshots/images into context
-- - 4. DO NOT re-read rules files — they are already loaded
-- **Task**: Session unknown compacted (unknown)
-- **Notes**: No session JSONL available; using minimal handoff.
-- **Next**: Reload from project memory bank if needed.
-- ---
-- POST-COMPACT RULES (next 3 turns):
-- 1. DO NOT re-read files you already know from this summary
-- 2. DO NOT read screenshots/images into context
-- 3. Use grep/find to locate, read ONLY needed lines (max 50)
-- 4. DO NOT re-read rules files — they are already loaded
-- 5. Work from this summary, not from scratch
+> Updated: 2026-07-08
+
+## Current State
+- No active implementation guide.
+- `web-research` remains the local-first web tier for cross-CLI agents: SearXNG/provider search, rerank, synthesis, and cloud fallback where configured.
+
+## Durable Notes
+- Keep transient compact-session instructions out of project memory.
+- Use `web-research` for web workflows before ad hoc browser/shell scraping when the task fits its supported commands.
