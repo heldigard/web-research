@@ -69,10 +69,22 @@ public functions, and on-disk cache format unchanged).
 ### CLI
 - `search`/`research` `--engine` accept `duckduckgo`.
 - `read` `--engine` accepts `html`; `read` and `research` accept `--no-robots`.
+- `research` accepts `--code-analyze` (see Cross-CLI integration below).
+
+### Cross-CLI integration
+- **`research --code-analyze`** — opt-in fusion of web research with local code
+  intelligence. Identifier-like tokens from the query are looked up in the
+  current working directory via the `codeq` CLI (`find` + `refs`); resolved hits
+  are appended to each scraped doc as a `## Local code context (codeq)` section
+  before synthesis, so the answer weaves web prose with how the symbol is
+  actually used in the caller's own repo. Degrades to a no-op when `codeq` is
+  absent or no symbol resolves locally (the common case for third-party library
+  docs). Honest scope: `codeq` operates on the local repo, not on scraped text.
+  New module `features/intelligence/code_analyze.py`.
 
 ### Tests
-- New `tests/test_enhancements.py` (28 tests) covering every item above with
-  the network mocked or via pure functions. Total suite now 93 tests.
+- New `tests/test_enhancements.py` (41 tests) covering every item above with
+  the network mocked or via pure functions. Total suite now 108 tests.
 
 ### Notes
 - Ollama has **no native `/rerank` endpoint** in 2026 (only `/api/embed`), so

@@ -23,6 +23,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import web_research.shared.config as _config
+from web_research.features.intelligence.code_analyze import (
+    _count_refs,
+    _is_identifier_candidate,
+    _parse_location,
+    enrich_with_local_code,
+    extract_query_symbols,
+    lookup_local_symbols,
+)
 from web_research.features.ranking import tei_rerank
 from web_research.features.ranking.engine import (
     _load_authority_domains,
@@ -349,6 +357,137 @@ class DuckDuckGoTests(unittest.TestCase):
         self.assertEqual(parser.results[0]["url"], "https://docs.python.org/json")
         self.assertEqual(parser.results[0]["title"], "Python json")
         self.assertIn("short", parser.results[1]["snippet"])
+
+
+class CodeAnalyzeTests(unittest.TestCase):
+    """Opt-in codeq fusion: symbol extraction + graceful subprocess paths."""
+
+    def test_is_identifier_candidate(self) -> None:
+        self.assertTrue(_is_identifier_candidate("BeautifulSoup"))
+        self.assertTrue(_is_identifier_candidate("parse_html"))
+        self.assertTrue(_is_identifier_candidate("rerank_results"))
+        self.assertFalse(_is_identifier_candidate("requests"))  # pure lowercase prose
+        self.assertFalse(_is_identifier_candidate("the"))  # stopword
+        self.assertTrue(_is_identifier_candidate("GET"))  # uppercase → identifier-like
+
+    def test_extract_query_symbols_filters_and_dedups(self) -> None:
+        syms = extract_query_symbols(
+            "How to use rerank_results and BeautifulSoup with rerank_results"
+        )
+        self.assertEqual(syms, ["rerank_results", "BeautifulSoup"])
+
+    def test_extract_query_symbols_limit(self) -> None:
+        syms = extract_query_symbols("Foo Bar Baz Qux Quux Corge", limit=3)
+        self.assertEqual(len(syms), 3)
+
+    def test_parse_location_first_file_line(self) -> None:
+        out = "src/app.py:42  function  main\nsrc/other.py:7  function  main"
+        self.assertEqual(_parse_location(out), "src/app.py:42")
+
+    def test_count_refs_handles_none_and_lines(self) -> None:
+        self.assertEqual(_count_refs(None), 0)
+        self.assertEqual(_count_refs("a\nb\n\nc\n"), 3)  # blank line skipped
+
+    def test_lookup_local_symbols_filters_unresolved(self) -> None:
+        # find resolves for sym A only; sym B returns None (unresolved).
+        def fake_run(args: list[str], timeout: float = 5.0) -> str | None:
+            if args[0] == "find" and args[1] == "ResolvedSym":
+                return "src/app.py:1  function  ResolvedSym"
+            if args[0] == "refs" and args[1] == "ResolvedSym":
+                return "src/caller.py:3  ResolvedSym()\nsrc/caller.py:9  ResolvedSym()"
+            return None
+
+        with patch(
+            "web_research.features.intelligence.code_analyze._run_codeq", side_effect=fake_run
+        ):
+            hits = lookup_local_symbols(["ResolvedSym", "GhostSym"])
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["symbol"], "ResolvedSym")
+        self.assertEqual(hits[0]["location"], "src/app.py:1")
+        self.assertEqual(hits[0]["refs"], 2)
+
+    def test_enrich_empty_when_codeq_absent(self) -> None:
+        with patch(
+            "web_research.features.intelligence.code_analyze.codeq_available", return_value=None
+        ):
+            self.assertEqual(enrich_with_local_code("rerank_results"), "")
+
+    def test_enrich_empty_when_no_symbols_resolve(self) -> None:
+        with (
+            patch(
+                "web_research.features.intelligence.code_analyze.codeq_available",
+                return_value="/fake/codeq",
+            ),
+            patch(
+                "web_research.features.intelligence.code_analyze.lookup_local_symbols",
+                return_value=[],
+            ),
+        ):
+            self.assertEqual(enrich_with_local_code("rerank_results"), "")
+
+    def test_enrich_renders_section_when_hits(self) -> None:
+        hits = [{"symbol": "rerank_results", "location": "src/r.py:139", "refs": 10}]
+        with (
+            patch(
+                "web_research.features.intelligence.code_analyze.codeq_available",
+                return_value="/fake/codeq",
+            ),
+            patch(
+                "web_research.features.intelligence.code_analyze.lookup_local_symbols",
+                return_value=hits,
+            ),
+        ):
+            out = enrich_with_local_code("rerank_results")
+        self.assertIn("## Local code context (codeq)", out)
+        self.assertIn("**rerank_results**", out)
+        self.assertIn("`src/r.py:139`", out)
+        self.assertIn("10 refs", out)
+
+    def test_enrich_skips_prose_only_query(self) -> None:
+        # Pure lowercase prose → no candidates → empty even if codeq present.
+        with patch(
+            "web_research.features.intelligence.code_analyze.codeq_available",
+            return_value="/fake/codeq",
+        ):
+            self.assertEqual(enrich_with_local_code("how to use the tool"), "")
+
+
+class CodeqSubprocessTests(unittest.TestCase):
+    """_run_codeq degrades on every failure mode (no real subprocess invoked)."""
+
+    def _proc(self, returncode: int, stdout: str) -> object:
+        class _P:
+            def __init__(self) -> None:
+                self.returncode = returncode
+                self.stdout = stdout
+
+        return _P()
+
+    def test_timeout_returns_none(self) -> None:
+        import subprocess
+
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="codeq", timeout=5)):
+            from web_research.features.intelligence.code_analyze import _run_codeq
+
+            self.assertIsNone(_run_codeq(["find", "x"]))
+
+    def test_not_found_returns_none(self) -> None:
+        with patch("subprocess.run", side_effect=FileNotFoundError()):
+            from web_research.features.intelligence.code_analyze import _run_codeq
+
+            self.assertIsNone(_run_codeq(["find", "x"]))
+
+    def test_nonzero_returncode_returns_none(self) -> None:
+        with patch("subprocess.run", return_value=self._proc(1, "")):
+            from web_research.features.intelligence.code_analyze import _run_codeq
+
+            self.assertIsNone(_run_codeq(["find", "GhostSym"]))
+
+    def test_success_returns_stdout(self) -> None:
+        with patch("subprocess.run", return_value=self._proc(0, "src/a.py:1  function  main\n")):
+            from web_research.features.intelligence.code_analyze import _run_codeq
+
+            self.assertEqual(_run_codeq(["find", "main"]), "src/a.py:1  function  main")
 
 
 if __name__ == "__main__":

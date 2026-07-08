@@ -10,9 +10,19 @@ web-research read    <url>   [--engine firecrawl|zai|html] [--no-robots]
                              [--wait N] [--zai-timeout N] [--max-chars N]
 web-research research <query> [-n 6] [--scrape 3] [--engine searxng|zai|minimax|duckduckgo]
                              [--time ...] [--answer] [--smart] [--max-chars N] [--no-robots]
+                             [--code-analyze]
 
 Common: --no-cache --timeout N --verbose
 ```
+
+## `--code-analyze` (research only)
+Opt-in fusion with local code intelligence (`features/intelligence/code_analyze.py`).
+Identifier-like tokens from the query are resolved in the CWD via the `codeq`
+CLI (`find` + `refs`); hits append a `## Local code context (codeq)` section to
+each scraped doc before synthesis. No-op when `codeq` is absent or no symbol
+resolves locally. Honest scope: `codeq` sees the local repo, not scraped text —
+the value is weaving web findings with how the symbol is used in the caller's
+own code.
 
 ## Entry points (4 equivalent ways in)
 - Wired ecosystem shim: `~/.claude/scripts/web-research.py` (skills call this)

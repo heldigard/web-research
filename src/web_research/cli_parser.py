@@ -91,6 +91,13 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
         action="store_true",
         help="skip robots.txt check before scraping result pages.",
     )
+    pr.add_argument(
+        "--code-analyze",
+        action="store_true",
+        help="opt-in: look up query identifiers in the local repo via codeq and "
+        "append a 'Local code context' section to each scraped doc before "
+        "synthesis. No-op when codeq is absent or no symbol resolves locally.",
+    )
     pr.set_defaults(func=handlers["research"])
 
     prd = sub.add_parser(

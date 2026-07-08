@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from functools import partial
 from typing import cast
 
+from web_research.features.intelligence.code_analyze import enrich_with_local_code
 from web_research.features.intelligence.engine import focused_extract, query_profile, search_queries
 from web_research.features.ranking.engine import annotate_quality, rerank_results
 from web_research.features.read.engine import scrape_with_fallback
@@ -46,11 +47,16 @@ def _build_docs(
     top: list[dict], mds: list[str], args: argparse.Namespace, intent: str
 ) -> list[dict]:
     """Pair scraped markdown with its result, optionally LLM-extracting the relevant part."""
+    code_section = ""
+    if getattr(args, "code_analyze", False):
+        code_section = enrich_with_local_code(args.query)
     docs = []
     for r, md in zip(top, mds, strict=True):
         if not md:
             continue
         extracted = focused_extract(md, args.query, intent) if args.smart else md
+        if code_section:
+            extracted = code_section + extracted
         docs.append(
             {
                 "url": r["url"],
@@ -76,6 +82,7 @@ def mode_research(args: argparse.Namespace) -> int:
         "time": time_range,
         "scrape": args.scrape,
         "smart": args.smart,
+        "code_analyze": getattr(args, "code_analyze", False),
     }
 
     results = _search_phase(args, time_range, cache_params, queries)
