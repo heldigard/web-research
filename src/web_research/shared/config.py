@@ -43,7 +43,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # because they document a single-bench decision recorded in MEMORY.md.
 _OLLAMA_DEFAULT_MODEL = "qwen3.5:4b"
 _OLLAMA_DEFAULT_SYNTH_MODEL = (
-    "hf.co/danielcherubini/Qwen3.5-DeltaCoder-9B-GGUF:Q4_K_M"  # web_synth #1, 2026-07-08 bench
+    "hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M"  # web_synth combined #1, 2026-07-08 PM bench
 )
 _OLLAMA_DEFAULT_EMBED = "embeddinggemma"  # MRR 0.724 eval winner
 _WEB_SYNTH_DEFAULT_CLOUD = "deepseek/deepseek-v4-flash"

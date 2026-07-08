@@ -18,7 +18,7 @@ from web_research.shared.ollama_api import generate
 
 def _synthesize_local(prompt: str, system: str) -> str | None:
     # Final cited answer → use the synthesis-tuned model (OLLAMA_SYNTH_MODEL =
-    # aratan/gemma-4-E4B-it-heretic:Q6_K, web_synth #1 in the 2026-07-08
+    # TeichAI/Fable-5-v1, web_synth combined #1 in the 2026-07-08 PM
     # canonical refactor bench), not the universal qwen3.5:4b anchor.
     return generate(prompt, system=system, temperature=0.2, model=OLLAMA_SYNTH_MODEL)
 
