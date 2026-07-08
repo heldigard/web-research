@@ -149,12 +149,81 @@ def _format_answer(answer: str, structured: bool) -> str | None:
     return answer
 
 
-def _render_structured(answer: str) -> str:
-    """Parse structured JSON and render it as clean markdown."""
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", answer.strip(), flags=re.MULTILINE)
+def _strip_fences(text: str) -> str:
+    """Trim whitespace + a single pair of ```` ```json ... ``` ```` fences."""
+    s = text.strip()
+    s = re.sub(r"^\s*```(?:json)?\s*", "", s)
+    s = re.sub(r"\s*```\s*$", "", s)
+    return s.strip()
+
+
+def _try_parse_dict(s: str) -> dict | None:
+    """``json.loads`` that returns ``None`` on failure or non-object results."""
     try:
-        data = json.loads(cleaned)
+        parsed = json.loads(s)
     except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+# vs-soft-allow  — _first_balanced_json is a single-responsibility brace/quote
+# state-machine scanner; its apparent depth is a flat sequence of guard branches
+# (for > if-string-mode > if-escape/quote), not nested business logic. Splitting
+# it would scatter the state vars (depth/in_str/escaped) across helpers for no
+# cohesion gain.
+def _first_balanced_json(s: str) -> dict | None:
+    """Scan for the first brace-balanced, string-aware span and try to parse it.
+
+    Rescues responses shaped ``"prose { ...json... } trailing prose"`` where the
+    object is not the whole string. Uses guard clauses + early ``continue`` to
+    keep nesting shallow (escape/quote state is tracked linearly, not nested).
+    """
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    escaped = False
+    for offset, ch in enumerate(s[start:], start):
+        # String-literal scanning: braces inside strings don't affect depth.
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        if depth == 0 and ch == "}":
+            return _try_parse_dict(s[start : offset + 1])
+    return None
+
+
+def _extract_json_object(text: str) -> dict | None:
+    """Extract the first balanced JSON object from an LLM response.
+
+    Tolerates the common failure modes of free-form model output: leading
+    prose ("Here is the answer:"), trailing commentary, and/or ```` ```json ````
+    code fences. Returns ``None`` when no complete object parses — the caller
+    then falls back to the raw text.
+    """
+    s = _strip_fences(text)
+    direct = _try_parse_dict(s)
+    if direct is not None:
+        return direct
+    return _first_balanced_json(s)
+
+
+def _render_structured(answer: str) -> str:
+    """Parse structured JSON (tolerating fences/prose) and render as clean markdown."""
+    data = _extract_json_object(answer)
+    if data is None:
         return answer
 
     sections: list[str] = []
