@@ -89,6 +89,62 @@ def set(prefix: str, params: dict, data: dict[str, Any], engine_tag: str | None 
             json.dump(entry, f)
     except OSError:
         pass
+    _evict_if_needed()
+
+
+def _evict_if_needed() -> None:
+    """Drop oldest cache files until both entry-count and byte budgets hold.
+
+    Runs after every write so the cache directory never grows unbounded
+    (the old implementation only expired individual entries on read). LRU by
+    file mtime; non-``.json`` files are left alone. A limit of 0 means
+    "no limit" for that axis.
+    """
+    settings = get_settings()
+    max_entries = settings.cache_max_entries
+    max_bytes = settings.cache_max_bytes
+    if max_entries <= 0 and max_bytes <= 0:
+        return
+    entries, total = _collect_cache_entries(_cache_dir())
+    if len(entries) <= max(max_entries, 1) and (max_bytes <= 0 or total <= max_bytes):
+        return
+    # Oldest first (lowest mtime) — that is the LRU victim order.
+    entries.sort(key=lambda item: item[1])
+    count = len(entries)
+    running_total = total
+    for path, _mtime, size in entries:
+        if count <= max(max_entries, 1) and (max_bytes <= 0 or running_total <= max_bytes):
+            break
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        count -= 1
+        running_total -= size
+
+
+def _collect_cache_entries(directory: str) -> tuple[list[tuple[str, float, int]], int]:
+    """Return ``(entries, total_bytes)`` for ``*.json`` files in ``directory``.
+
+    Each entry is ``(path, mtime, size)``. Swallows OS errors per-file so a
+    single unreadable entry never aborts the eviction sweep.
+    """
+    entries: list[tuple[str, float, int]] = []
+    total = 0
+    try:
+        scan = list(os.scandir(directory))
+    except OSError:
+        return entries, total
+    for e in scan:
+        if not (e.is_file() and e.name.endswith(".json")):
+            continue
+        try:
+            st = e.stat()
+        except OSError:
+            continue
+        entries.append((e.path, st.st_mtime, st.st_size))
+        total += st.st_size
+    return entries, total
 
 
 def clear() -> None:

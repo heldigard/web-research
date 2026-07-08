@@ -32,6 +32,16 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -81,13 +91,26 @@ class Settings:
     # Cloud synthesis fallback
     web_synth_cloud_model: str = _WEB_SYNTH_DEFAULT_CLOUD
 
+    # Optional stage-2 cross-encoder rerank via a self-hosted TEI server
+    # (HuggingFace Text Embeddings Inference, /rerank endpoint). Empty string
+    # disables it and the engine falls back to the bi-encoder cosine ranker.
+    tei_rerank_url: str = ""
+
     # HTTP / runtime
     timeout: int = 30
     verbose: bool = False
+    # Retry transient HTTP failures (429 / 5xx / URLError) with exponential
+    # backoff. Defaults are tiny so injected-failure tests stay fast; tune up
+    # for production. Set http_max_retries=0 to disable entirely.
+    http_max_retries: int = 2
+    http_backoff_base: float = 0.2
 
     # Cache
     cache_dir: str = ""  # empty → ~/.cache/web-research
     cache_ttl_seconds: int = 3600
+    # Size-bound LRU eviction (runs on every ``set``). 0 disables the limit.
+    cache_max_entries: int = 500
+    cache_max_bytes: int = 50_000_000  # 50 MB
 
     # Synthesis budget — hard cap for source text sent to the final model
     web_synth_max_context_chars: int = 14000
@@ -115,10 +138,15 @@ def load_settings() -> Settings:
         zai_search_url=_env_str("ZAI_SEARCH_URL", Settings.zai_search_url).rstrip("/"),
         zai_reader_url=_env_str("ZAI_READER_URL", Settings.zai_reader_url).rstrip("/"),
         web_synth_cloud_model=_env_str("WEB_SYNTH_CLOUD_MODEL", _WEB_SYNTH_DEFAULT_CLOUD),
+        tei_rerank_url=_env_str("TEI_RERANK_URL", "").rstrip("/"),
         timeout=_env_int("WEB_RESEARCH_TIMEOUT", 30),
         verbose=_env_bool("WEB_RESEARCH_VERBOSE", False),
+        http_max_retries=_env_int("WEB_RESEARCH_HTTP_RETRIES", Settings.http_max_retries),
+        http_backoff_base=_env_float("WEB_RESEARCH_HTTP_BACKOFF", Settings.http_backoff_base),
         cache_dir=_env_str("WEB_RESEARCH_CACHE_DIR", ""),
         cache_ttl_seconds=_env_int("WEB_RESEARCH_CACHE_TTL", 3600),
+        cache_max_entries=_env_int("WEB_RESEARCH_CACHE_MAX_ENTRIES", Settings.cache_max_entries),
+        cache_max_bytes=_env_int("WEB_RESEARCH_CACHE_MAX_BYTES", Settings.cache_max_bytes),
         web_synth_max_context_chars=_env_int("WEB_SYNTH_MAX_CONTEXT_CHARS", 14000),
         # ECOSYSTEM_SCRIPTS must hold BOTH ollama_client.py and the cheap_llm.py
         # shim (~/.claude/scripts). Do NOT fall back to CHEAP_LLM_HOME — that

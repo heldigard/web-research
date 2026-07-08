@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +27,13 @@ from typing import Protocol
 from . import config
 
 _USER_AGENT = "web-research/0.1 (+https://github.com/heldigard/web-research)"
+
+
+def _backoff_seconds(attempt: int, base: float, cap: float = 10.0) -> float:
+    """Exponential backoff: ``base * 2**attempt`` capped at ``cap`` seconds."""
+    if base <= 0:
+        return 0.0
+    return min(cap, base * (2**attempt))
 
 
 class HttpClient(Protocol):
@@ -75,8 +83,30 @@ class UrllibHttpClient:
         # (user-supplied) or from backend response JSON (already-validated
         # upstream at the SearXNG/Z.AI boundary). Internal code never
         # constructs URLs from untrusted string concat.
-        with urllib.request.urlopen(req, timeout=effective_timeout) as response:
-            return response.read()
+        settings = config.get_settings()
+        max_retries = max(0, settings.http_max_retries)
+        base = max(0.0, settings.http_backoff_base)
+        for attempt in range(max_retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=effective_timeout) as response:
+                    return response.read()
+            except urllib.error.HTTPError as e:
+                # Retry only rate-limit + server-side errors; 4xx (except 429)
+                # is a caller bug and must surface immediately.
+                retryable = e.code == 429 or 500 <= e.code < 600
+                if not retryable or attempt == max_retries:
+                    raise
+            except urllib.error.URLError:
+                # Connection reset / timeout / DNS hiccup — all worth a retry.
+                if attempt == max_retries:
+                    raise
+            # Back off before the next attempt. No jitter: deterministic for
+            # tests; production spread comes from per-host timing anyway.
+            time.sleep(_backoff_seconds(attempt, base))
+        # Unreachable: every terminal path raises above. A fall-through here
+        # would be a logic bug (e.g. max_retries configured negative), so
+        # surface it explicitly rather than raising a possibly-None exception.
+        raise RuntimeError("retry loop exited without result or exception")  # pragma: no cover
 
     def get_json(
         self, url: str, *, timeout: float | None = None, headers: dict | None = None
