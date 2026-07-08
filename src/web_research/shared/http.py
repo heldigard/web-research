@@ -36,6 +36,23 @@ def _backoff_seconds(attempt: int, base: float, cap: float = 10.0) -> float:
     return min(cap, base * (2**attempt))
 
 
+def _retry_after_seconds(err: urllib.error.HTTPError, cap: float = 30.0) -> float | None:
+    """Parse a ``Retry-After`` header (seconds form only) to a wait in seconds.
+
+    Returns ``None`` when absent or unparseable. HTTP-date form is intentionally
+    not converted (no tz-safe parser in stdlib); only integer-second values are
+    honored. Capped so a hostile header can't stall the engine.
+    """
+    headers = getattr(err, "headers", None)
+    raw = headers.get("Retry-After") if headers else None
+    if not raw:
+        return None
+    try:
+        return min(cap, float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
 class HttpClient(Protocol):
     """Minimal HTTP port used by every backend.
 
@@ -87,6 +104,7 @@ class UrllibHttpClient:
         max_retries = max(0, settings.http_max_retries)
         base = max(0.0, settings.http_backoff_base)
         for attempt in range(max_retries + 1):
+            wait = _backoff_seconds(attempt, base)
             try:
                 with urllib.request.urlopen(req, timeout=effective_timeout) as response:
                     return response.read()
@@ -96,13 +114,18 @@ class UrllibHttpClient:
                 retryable = e.code == 429 or 500 <= e.code < 600
                 if not retryable or attempt == max_retries:
                     raise
+                # Honor Retry-After on 429/503 when the server sends it; cap so
+                # a hostile header can't stall the engine for minutes.
+                ra = _retry_after_seconds(e)
+                if ra is not None:
+                    wait = ra
             except urllib.error.URLError:
                 # Connection reset / timeout / DNS hiccup — all worth a retry.
                 if attempt == max_retries:
                     raise
             # Back off before the next attempt. No jitter: deterministic for
             # tests; production spread comes from per-host timing anyway.
-            time.sleep(_backoff_seconds(attempt, base))
+            time.sleep(wait)
         # Unreachable: every terminal path raises above. A fall-through here
         # would be a logic bug (e.g. max_retries configured negative), so
         # surface it explicitly rather than raising a possibly-None exception.
