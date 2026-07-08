@@ -31,6 +31,7 @@ from web_research.features.ranking.engine import (
     query_word_overlap,
 )
 from web_research.features.read.backends.html import _html_to_markdown
+from web_research.features.read.engine import read_with_fallback
 from web_research.features.search.backends.duckduckgo import (
     _DDGResultParser,
     _decode_ddg_href,
@@ -38,7 +39,7 @@ from web_research.features.search.backends.duckduckgo import (
 from web_research.features.synthesis.engine import _extract_json_object
 from web_research.shared import cache
 from web_research.shared.cache import _collect_cache_entries
-from web_research.shared.http import UrllibHttpClient, _backoff_seconds
+from web_research.shared.http import UrllibHttpClient, _backoff_seconds, _retry_after_seconds
 from web_research.shared.robots import is_allowed
 
 
@@ -121,6 +122,45 @@ class HttpRetryTests(unittest.TestCase):
             body = UrllibHttpClient().get_bytes("http://x/")
         self.assertEqual(body, b"late")
         self.assertEqual(calls["n"], 3)
+
+    def test_retry_after_parsed_and_capped(self) -> None:
+        e5 = urllib.error.HTTPError("http://x", 429, "Slow", {"Retry-After": "5"}, None)
+        self.assertEqual(_retry_after_seconds(e5), 5.0)
+        e_huge = urllib.error.HTTPError("http://x", 429, "Slow", {"Retry-After": "9999"}, None)
+        self.assertEqual(_retry_after_seconds(e_huge), 30.0)  # capped
+
+    def test_retry_after_absent_or_garbage(self) -> None:
+        none_hdr = urllib.error.HTTPError("http://x", 429, "Slow", {}, None)
+        self.assertIsNone(_retry_after_seconds(none_hdr))
+        junk = urllib.error.HTTPError("http://x", 429, "Slow", {"Retry-After": "Wed, 21 Oct"}, None)
+        self.assertIsNone(_retry_after_seconds(junk))  # HTTP-date form unsupported
+
+
+class ReaderChainTests(unittest.TestCase):
+    """Fallback chain: Firecrawl down -> stdlib HTML reader succeeds."""
+
+    def test_chain_falls_through_to_html(self) -> None:
+        html_body = b"<html><head><title>Ex</title></head><body><p>Hi there</p></body></html>"
+
+        def side_effect(req: urllib.request.Request, **kw: object) -> object:
+            url = req.full_url
+            if "localhost:3002" in url:  # Firecrawl POST
+                raise urllib.error.URLError("firecrawl down")
+            if "example.com" in url:  # plain GET for the HTML reader
+                return _FakeResponse(html_body)
+            raise Exception(f"unmocked: {url}")
+
+        with patch("urllib.request.urlopen", side_effect=side_effect):
+            with patch.object(
+                __import__("web_research.features.read.engine", fromlist=["ZAI_API_KEY"]),
+                "ZAI_API_KEY",
+                "",
+            ):
+                md = read_with_fallback(
+                    "https://example.com", engine="firecrawl", respect_robots=False
+                )
+        self.assertIn("# Ex", md)
+        self.assertIn("Hi there", md)
 
 
 class AuthorityDataTests(unittest.TestCase):

@@ -831,6 +831,14 @@ class FallbackTests(unittest.TestCase):
 class QueryProfileRuleTests(unittest.TestCase):
     """query_profile rule-based classification edge cases."""
 
+    def setUp(self):
+        # is_alive() caches its result for 30s; bust it so the per-test
+        # ``is_alive=False`` mock is honored instead of a stale True value
+        # left by an earlier test (which would route into the LLM path).
+        from web_research.shared.ollama_api import _bust_alive_cache
+
+        _bust_alive_cache()
+
     @patch("ollama_client.is_alive")
     def test_news_keywords_set_recency(self, mock_alive):
         mock_alive.return_value = False
