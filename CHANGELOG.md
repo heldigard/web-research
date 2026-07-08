@@ -93,3 +93,19 @@ public functions, and on-disk cache format unchanged).
   cloud rerank APIs were deliberately **not** added: the stdlib equivalents
   above cover the same gaps without breaking the zero-dependency invariant
   (YAGNI until a gap is measured as a real bottleneck).
+
+### Debt cleanup
+- **Removed dead code from `shared/http.py`** — `codescan dead` + `codeq refs`
+  confirmed four unreferenced symbols (0 callers repo-wide, src + tests):
+  `set_default_client` (the aspirational swap setter never called — tests mock
+  `urllib.request.urlopen` instead), and the three legacy back-compat helpers
+  `_http` / `_get_json` / `_post_json` (plus the `_encode_query` alias) whose
+  "kept for existing call sites" comment was stale — the backend-split refactor
+  migrated every call site to `default_client()`. `default_client` itself is
+  retained (every backend resolves through it). The future-httpx swap is now
+  documented honestly as "edit the `_client` assignment" rather than a setter
+  that nothing calls. `ARCHITECTURE.md` swap recipe updated. Suite stays
+  108/108; `codescan dead` drops 28 → 24 (the residual 24 are confirmed false
+  positives: HTMLParser framework callbacks, config-surface settings read via
+  the `Settings` proxy, and test-only cache-bust helpers — static-analysis
+  limits, not debt).

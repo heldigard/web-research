@@ -5,8 +5,9 @@ Defines the ``HttpClient`` protocol every backend depends on, the default
 ``default_client`` singleton that backends resolve at call time.
 
 The protocol surface is intentionally minimal (``get_json`` / ``post_json``
-/ ``get_bytes``) so the future swap to ``httpx`` (connection pooling,
-retries, streaming) is one new class + one ``set_default_client()`` call.
+/ ``get_bytes``). The default ``UrllibHttpClient`` is wired as the module
+singleton; a future ``httpx`` swap is one new ``HttpClient`` class + editing
+the ``_client`` assignment (or reintroducing a setter then).
 """
 
 # vs-soft-allow  — HTTP method signatures (Protocol + impl pair) are cohesive
@@ -163,14 +164,8 @@ _client: HttpClient = UrllibHttpClient()
 
 
 def default_client() -> HttpClient:
-    """Return the process-wide default client. Override via :func:`set_default_client`."""
+    """Return the process-wide default client (module singleton)."""
     return _client
-
-
-def set_default_client(client: HttpClient) -> None:
-    """Replace the default client. Tests use this to inject a fake."""
-    global _client
-    _client = client
 
 
 # -- Logging helpers (unchanged surface, port-injected clients don't touch these) ----
@@ -195,34 +190,3 @@ _debug = debug
 # Public alias for ``urllib.parse.urlencode`` — backends import this
 # rather than reach into stdlib directly (consistent with HttpClient usage).
 urlencode = urllib.parse.urlencode
-
-
-# -- Legacy module-level helpers (kept for back-compat with existing tests/code) ----
-# These now route through the default client. Prefer ``default_client()`` directly
-# in new code — the underscored names exist so the existing call sites keep
-# working without churn during the backend-split refactor.
-
-_encode_query = urllib.parse.urlencode
-
-
-def _http(
-    url: str, data: bytes | None = None, headers: dict | None = None, timeout: float | None = None
-) -> bytes:
-    """Legacy entry point — delegates to the default client."""
-    return (
-        default_client().get_bytes(url, headers=headers)
-        if data is None
-        else default_client()._request(  # type: ignore[attr-defined]
-            url, data=data, headers=headers, timeout=timeout
-        )
-    )
-
-
-def _get_json(url: str, timeout: float | None = None) -> dict:
-    return default_client().get_json(url, timeout=timeout)
-
-
-def _post_json(
-    url: str, payload: dict, headers: dict | None = None, timeout: float | None = None
-) -> dict:
-    return default_client().post_json(url, payload, timeout=timeout, headers=headers)

@@ -59,7 +59,9 @@ returning markdown.
 
 ## Swapping the HTTP transport
 
-`shared/http.py` ships `UrllibHttpClient` (stdlib-only). To swap to `httpx`:
+`shared/http.py` ships `UrllibHttpClient` (stdlib-only) wired as the module
+singleton (`_client`). To swap to `httpx`, add a new `HttpClient` impl and
+re-point the singleton:
 
 ```python
 # shared/http_httpx.py
@@ -68,12 +70,12 @@ class HttpxClient:
     def post_json(self, url, payload, *, timeout=None, headers=None): ...
     def get_bytes(self, url, *, timeout=None, headers=None): ...
 
-# at startup / from a config flag:
-from web_research.shared.http import set_default_client
-set_default_client(HttpxClient())
+# in shared/http.py — replace the singleton assignment, or reintroduce a
+# set_default_client() setter at that point if a runtime flag is needed:
+#   _client: HttpClient = HttpxClient() if config.USE_HTTPX else UrllibHttpClient()
 ```
 
-No edits to backends or the dispatcher.
+No edits to backends or the dispatcher — they all resolve via `default_client()`.
 
 ## Cache invalidation on model / prompt change
 
