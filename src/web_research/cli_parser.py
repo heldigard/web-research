@@ -43,7 +43,11 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     )
     ps.add_argument("query")
     ps.add_argument("-n", type=int, default=8)
-    ps.add_argument("--engine", default="searxng", choices=["searxng", "minimax", "zai"])
+    ps.add_argument(
+        "--engine",
+        default="searxng",
+        choices=["searxng", "minimax", "zai", "duckduckgo"],
+    )
     ps.add_argument("--cat", default="general")
     ps.add_argument("--lang", default="en")
     ps.add_argument("--time", default="", help="day|week|month|year")
@@ -70,7 +74,11 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     pr.add_argument("-n", type=int, default=6, help="search results to pull")
     pr.add_argument("--scrape", type=int, default=3, help="how many to fully scrape")
     pr.add_argument("--max-chars", type=int, default=4000, dest="max_chars")
-    pr.add_argument("--engine", default="searxng", choices=["searxng", "minimax", "zai"])
+    pr.add_argument(
+        "--engine",
+        default="searxng",
+        choices=["searxng", "minimax", "zai", "duckduckgo"],
+    )
     pr.add_argument("--time", default="")
     pr.add_argument("--answer", action="store_true", help="direct Q&A style instead of report")
     pr.add_argument(
@@ -78,15 +86,29 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
         action="store_true",
         help="profile, focused extract, structured synthesis",
     )
+    pr.add_argument(
+        "--no-robots",
+        action="store_true",
+        help="skip robots.txt check before scraping result pages.",
+    )
     pr.set_defaults(func=handlers["research"])
 
     prd = sub.add_parser(
         "read",
         parents=[common],
-        help="Read one URL -> markdown via Firecrawl or Z.AI reader.",
+        help="Read one URL -> markdown via Firecrawl, Z.AI, or stdlib HTML.",
     )
     prd.add_argument("url")
-    prd.add_argument("--engine", default="firecrawl", choices=["firecrawl", "zai"])
+    prd.add_argument(
+        "--engine",
+        default="firecrawl",
+        choices=["firecrawl", "zai", "html"],
+    )
+    prd.add_argument(
+        "--no-robots",
+        action="store_true",
+        help="skip robots.txt check before fetching the URL.",
+    )
     prd.add_argument("--wait", type=int, default=0)
     prd.add_argument("--zai-timeout", type=int, default=20, help="Z.AI reader timeout")
     prd.add_argument("--max-chars", type=int, default=12000)

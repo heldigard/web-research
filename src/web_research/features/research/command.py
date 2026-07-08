@@ -1,11 +1,15 @@
 """``research`` subcommand: search -> scrape top K -> extract -> cited synthesis."""
 
+# vs-soft-allow  — research command orchestrator. Apparent depth comes from a
+# sequential pipeline (search -> rerank -> scrape -> synthesize), not nested
+# business logic; splitting would just scatter one linear flow across files.
 from __future__ import annotations
 
 import argparse
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from functools import partial
 from typing import cast
 
 from web_research.features.intelligence.engine import focused_extract, query_profile, search_queries
@@ -85,8 +89,10 @@ def mode_research(args: argparse.Namespace) -> int:
 
     k = min(args.scrape, len(results))
     top = results[:k]
+    urls = [r["url"] for r in top]
+    fetch = partial(scrape_with_fallback, respect_robots=not getattr(args, "no_robots", False))
     with ThreadPoolExecutor(max_workers=min(k, 4) or 1) as ex:
-        mds = list(ex.map(scrape_with_fallback, [r["url"] for r in top]))
+        mds = list(ex.map(fetch, urls))
 
     docs = _build_docs(top, mds, args, profile.get("intent", "general"))
 
