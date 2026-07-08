@@ -1,0 +1,33 @@
+# Authority domains for source_quality_score.
+# One domain per line (lowercase, no scheme). Lines starting with '#' are
+# comments and blank lines are ignored. Matched as exact host OR any suffix
+# of the form "<sub>.<domain>" (so docs.python.org matches python docs,
+# evil-docs.python.org does NOT). Kept in a data file so the list can grow
+# without touching engine code.
+docs.python.org
+developer.mozilla.org
+docs.github.com
+learn.microsoft.com
+cloud.google.com
+aws.amazon.com
+docs.aws.amazon.com
+fastapi.tiangolo.com
+flask.palletsprojects.com
+django.readthedocs.io
+docs.angular.io
+react.dev
+docs.spring.io
+go.dev
+rust-lang.org
+doc.rust-lang.org
+pkg.go.dev
+pypi.org
+npmjs.com
+stackoverflow.com
+github.com
+git-scm.com
+openai.com
+platform.openai.com
+developers.openai.com
+anthropic.com
+claude.ai
