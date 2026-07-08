@@ -33,8 +33,16 @@ if _scripts and Path(_scripts).is_dir() and _scripts not in sys.path:
 # Optional harness helpers — degrade gracefully when absent.
 # ---------------------------------------------------------------
 
+# Contract floor this consumer needs (ollama-client SemVer >= 1.0). The require()
+# gate fails fast on version drift instead of a cryptic mid-run error.
+# ollama_client is now a graduated project (~/ollama-client/); the
+# ~/.claude/scripts/ollama_client.py shim re-exports from it.
+_OLLAMA_CLIENT_MIN_VERSION = "1.0"
+
 try:
     import ollama_client as oc  # embed, generate, is_alive
+
+    oc.require(_OLLAMA_CLIENT_MIN_VERSION)
 except Exception:  # pragma: no cover — env-dependent
     oc = None  # type: ignore[assignment]
 
