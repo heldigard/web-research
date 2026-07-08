@@ -80,7 +80,7 @@ Common: --no-cache --timeout N --verbose
 ## Model routing
 
 - **Local (Ollama)**: `OLLAMA_MODEL` (universal default `qwen3.5:4b`) for
-  query_profile/focused_extract; `OLLAMA_SYNTH_MODEL` (`batiai/gemma4-e4b:q4`)
+  query_profile/focused_extract; `OLLAMA_SYNTH_MODEL` (`aratan/gemma-4-E4B-it-heretic:Q6_K`)
   for the final cited synthesis.
 - **Cloud fallback**: `WEB_SYNTH_CLOUD_MODEL` (`deepseek-v4-flash`) via
   `cheap_llm.py` — fires only when local Ollama is down.

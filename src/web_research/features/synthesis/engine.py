@@ -18,8 +18,8 @@ from web_research.shared.ollama_api import generate
 
 def _synthesize_local(prompt: str, system: str) -> str | None:
     # Final cited answer → use the synthesis-tuned model (OLLAMA_SYNTH_MODEL =
-    # jaahas/crow:9b, web_synth combined #1 re-bench 2026-07-05 r5), not the
-    # universal qwen3.5:4b anchor. e4b was the prior winner; collapsed in r5 tb.
+    # aratan/gemma-4-E4B-it-heretic:Q6_K, web_synth #1 in the 2026-07-08
+    # canonical refactor bench), not the universal qwen3.5:4b anchor.
     return generate(prompt, system=system, temperature=0.2, model=OLLAMA_SYNTH_MODEL)
 
 
