@@ -18,14 +18,17 @@
 
 ```
 ~/.claude/scripts/
-├── ollama_client.py     ← FLAT SCRIPT (NOT graduated). embed/generate/is_alive.
+├── ollama_client.py     ← SHIM → re-exports ~/ollama-client/ (graduated 2026-07-08, SemVer 1.0.0).
 └── cheap_llm.py         ← SHIM → re-exports ~/cheap-llm/ (graduated, SemVer).
 ```
 
-- **`ollama_client.py`** is consumed by **all four** hook/CLI projects
-  (`codeq/shared/llm.py`, `smart-trim/shared/compat.py`,
-  `prompt-improve/shared/compat.py`, `web-research/shared/compat.py`).
-  Each does its own `sys.path.insert(0, ~/.claude/scripts)` bootstrap.
+- **`ollama_client`** GRADUATED to `~/ollama-client/` on 2026-07-08 (P1
+  phase-1). The `~/.claude/scripts/ollama_client.py` script is now a thin
+  re-export shim, so all four hook/CLI projects (`codeq/shared/llm.py`,
+  `smart-trim/shared/compat.py`, `prompt-improve/shared/compat.py`,
+  `web-research/shared/compat.py`) keep resolving untouched. web-research
+  version-gates it with `oc.require('1.0')`; the other three still import via
+  the shim (phase-2 migration = incremental follow-up).
 - **`cheap_llm`** is consumed by `smart-trim`, `prompt-improve`, `web-research`
   via their `compat.py`. `web-research` gates it with `cheap_llm.require("1.1")`.
 - **Cache dirs are siloed**: web-research `~/.cache/web-research/`,

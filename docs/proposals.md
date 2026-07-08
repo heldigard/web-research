@@ -3,7 +3,16 @@
 > Derived from `ECOSYSTEM.md`. Each proposal states value, risk, effort, and
 > the repos it touches. Verified against source 2026-07-08.
 
-## P1 — Graduate `ollama_client` to `~/ollama-client/` (HIGH value)
+## P1 — Graduate `ollama_client` to `~/ollama-client/` (HIGH value) ✅ SHIPPED 2026-07-08
+
+**Status**: phase-1 complete. `~/ollama-client/` created (SemVer 1.0.0,
+`require()`, flat module mirroring cheap-llm). `~/.claude/scripts/ollama_client.py`
+is now a re-export shim. web-research migrated as first real consumer
+(`oc.require('1.0')`). Committed locally (`~/ollama-client/` 1c2697b;
+`~/.claude` shim 31d23c7 on branch `feat/ollama-client-graduation`, main
+untouched). **NOT pushed** — awaits user ok (creates public github.com/
+heldigard/ollama-client). **Phase-2 (migrate codeq/smart-trim/prompt-improve
+off the shim to the real package) is incremental follow-up.**
 
 **Problem**: `ollama_client.py` is a 756-line flat script in `~/.claude/scripts/`
 consumed by **four** projects (`codeq`, `smart-trim`, `prompt-improve`,
@@ -52,7 +61,13 @@ synthesis, prompt-improve rewrites).
 pattern web-research already uses.
 **Effort**: ~1 session (centralize in `ollama_client` after P1 graduates it).
 
-## P4 — web-research ↔ codeq integration (MEDIUM value, LOW risk)
+## P4 — web-research ↔ codeq integration (MEDIUM value, LOW risk) ✅ SHIPPED 2026-07-08
+
+**Status**: `research --code-analyze` shipped (`features/intelligence/code_analyze.py`,
+commit 4295b68). Identifier-like query tokens resolved in the CWD via `codeq find`
++ `refs`; hits appended as a `## Local code context (codeq)` section before
+synthesis. Honest scope: codeq sees the local repo, not scraped text. Graceful
+no-op when codeq is absent or no symbol resolves. 13 tests; suite 108.
 
 **Problem**: web-research scrapes API docs / library READMEs but has no
 code-fact extraction; `focused_extract` treats code as prose.
@@ -80,9 +95,11 @@ bootstrap in their `compat.py`.
 
 ## Recommended order
 
-1. **P1** (graduate `ollama_client`) — unblocks P3 and removes the root coupling smell.
+> **2026-07-08 status**: P1 (phase-1) and P4 SHIPPED. P2/P3/P5 deferred.
+
+1. **P1** (graduate `ollama_client`) ✅ — unblocks P3 and removes the root coupling smell.
 2. **P2** (model registry) — quick win, immediately useful, zero breakage.
-3. **P4** (codeq integration) — visible feature win for web-research specifically.
+3. **P4** (codeq integration) ✅ — visible feature win for web-research specifically.
 4. **P3** then **P5** — follow-on cleanups once P1 lands.
 
 P1, P2, P3, P5 are cross-repo (touch `~/codeq`, `~/smart-trim`,
