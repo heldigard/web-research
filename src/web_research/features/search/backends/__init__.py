@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import cast
 
 from .base import SearchBackend, SearchResult, normalize_url, tracking_params
+from .duckduckgo import DuckDuckGoBackend
 from .minimax import MinimaxBackend
 from .searxng import SearXNGBackend
 from .zai import ZaiBackend, zai_recency
@@ -21,6 +22,7 @@ BUILTIN_BACKENDS: dict[str, type[SearchBackend]] = {
     "searxng": cast(type[SearchBackend], SearXNGBackend),
     "minimax": cast(type[SearchBackend], MinimaxBackend),
     "zai": cast(type[SearchBackend], ZaiBackend),
+    "duckduckgo": cast(type[SearchBackend], DuckDuckGoBackend),
 }
 
 
@@ -34,6 +36,7 @@ def build_backend(name: str, **kwargs: object) -> SearchBackend | None:
 
 __all__ = [
     "BUILTIN_BACKENDS",
+    "DuckDuckGoBackend",
     "MinimaxBackend",
     "SearchBackend",
     "SearchResult",
