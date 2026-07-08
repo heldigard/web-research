@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import UTC
 
+from web_research.shared.json_utils import extract_json_object
 from web_research.shared.ollama_api import generate, is_alive
 
 # ---------------------------------------------------------------
@@ -72,16 +71,14 @@ def query_profile(query: str) -> dict:
     raw = generate(prompt, system=system, temperature=0.0)
     if not raw:
         return default
-    try:
-        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.MULTILINE)
-        profile = json.loads(cleaned)
-        for key in default:
-            profile.setdefault(key, default[key])
-        if not isinstance(profile["expand_queries"], list) or not profile["expand_queries"]:
-            profile["expand_queries"] = [query]
-        return profile
-    except (json.JSONDecodeError, TypeError):
+    profile = extract_json_object(raw)
+    if not isinstance(profile, dict):
         return default
+    for key in default:
+        profile.setdefault(key, default[key])
+    if not isinstance(profile["expand_queries"], list) or not profile["expand_queries"]:
+        profile["expand_queries"] = [query]
+    return profile
 
 
 def expand_queries(query: str, profile: dict | None = None) -> list[str]:
