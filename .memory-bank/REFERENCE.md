@@ -3,13 +3,13 @@
 ## CLI (src/web_research/cli.py → build_parser in cli_parser.py)
 
 ```
-web-research search  <query> [-n 8] [--engine searxng|zai|minimax]
+web-research search  <query> [-n 8] [--engine searxng|zai|minimax|duckduckgo]
                              [--cat general] [--lang en] [--time day|week|month|year]
                              [--rerank] [--smart] [--summary] [--json]
-web-research read    <url>   [--engine firecrawl|zai] [--wait N] [--zai-timeout N]
-                             [--max-chars N]
-web-research research <query> [-n 6] [--scrape 3] [--engine ...] [--time ...]
-                             [--answer] [--smart] [--max-chars N]
+web-research read    <url>   [--engine firecrawl|zai|html] [--no-robots]
+                             [--wait N] [--zai-timeout N] [--max-chars N]
+web-research research <query> [-n 6] [--scrape 3] [--engine searxng|zai|minimax|duckduckgo]
+                             [--time ...] [--answer] [--smart] [--max-chars N] [--no-robots]
 
 Common: --no-cache --timeout N --verbose
 ```
@@ -26,6 +26,7 @@ Common: --no-cache --timeout N --verbose
 | SearXNG  | http://localhost:8080    | `SEARXNG_URL` |
 | Firecrawl| http://localhost:3002    | `FC_URL` + `FC_API_KEY` |
 | Ollama   | http://localhost:11434   | `OLLAMA_URL` |
+| TEI rerank (optional) | (unset = disabled) | `TEI_RERANK_URL` |
 
 ## Backend API endpoints (externalized 2026-07-05)
 | Service  | Default URL                                          | Env override     |
@@ -33,14 +34,19 @@ Common: --no-cache --timeout N --verbose
 | MiniMax  | https://api.minimax.io/v1/coding_plan/search         | `MINIMAX_URL`    |
 | Z.AI search | https://api.z.ai/api/paas/v4/web_search           | `ZAI_SEARCH_URL` |
 | Z.AI reader | https://api.z.ai/api/paas/v4/reader               | `ZAI_READER_URL` |
+| DuckDuckGo | https://html.duckduckgo.com/html/ (no key)        | —                |
+| TEI rerank | `{TEI_RERANK_URL}/rerank` (POST, optional)        | `TEI_RERANK_URL` |
 
 ## Model routing
-- `OLLAMA_MODEL` (default `qwen3.5:4b`) — query_profile, focused_extract.
-- `OLLAMA_SYNTH_MODEL` (default `batiai/gemma4-e4b:q4`) — final cited synthesis.
+- `OLLAMA_MODEL` (default `cryptidbleh/gemma4-claude-opus-4.6`) — query_profile, focused_extract.
+- `OLLAMA_SYNTH_MODEL` (default `hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M`) — final cited synthesis.
 - `OLLAMA_EMBED` (default `embeddinggemma`) — rerank embeddings (MRR 0.724).
 - `WEB_SYNTH_CLOUD_MODEL` (default `deepseek/deepseek-v4-flash`) — cloud fallback.
 - API keys: `ZAI_API_KEY` / `Z_AI_API_KEY`, `MINIMAX_API_KEY`.
 - `WEB_RESEARCH_TIMEOUT` (default 30s) — HTTP timeout override.
+- HTTP retry (2026-07-08): `WEB_RESEARCH_HTTP_RETRIES` (default 2),
+  `WEB_RESEARCH_HTTP_BACKOFF` (default 0.2s). 429/5xx/URLError retried;
+  other 4xx surfaces immediately.
 
 ## Sibling ecosystem scripts (NOT in this repo)
 - `WEB_RESEARCH_SCRIPTS` (alias `CHEAP_LLM_HOME`, default `~/.claude/scripts/`) →
@@ -52,6 +58,10 @@ Common: --no-cache --timeout N --verbose
 On-disk JSON cache at `WEB_RESEARCH_CACHE_DIR` (default
 `~/.cache/web-research/`), TTL `WEB_RESEARCH_CACHE_TTL` (default 3600s).
 Bypass with `--no-cache`.
+
+**Size-bound LRU eviction (2026-07-08):** every `set()` sweeps oldest entries
+by mtime when `WEB_RESEARCH_CACHE_MAX_ENTRIES` (default 500) or
+`WEB_RESEARCH_CACHE_MAX_BYTES` (default 50 MB; `0` = no limit) is exceeded.
 
 **Schema-versioned (2026-07-05):** every entry is stamped with
 `SCHEMA_VERSION` (= 1) and an optional caller-supplied `engine_tag`.
@@ -66,23 +76,27 @@ src/web_research/
 ├── cli.py + cli_parser.py       entrypoint + argparse (handlers injected)
 └── shared/                      typed infra; never imports features
     ├── config.py                Settings dataclass + env + legacy proxy
-    ├── http.py                  HttpClient Protocol + UrllibHttpClient
-    ├── cache.py                 schema-versioned on-disk cache
+    ├── http.py                  HttpClient Protocol + UrllibHttpClient (retry/backoff)
+    ├── cache.py                 schema-versioned on-disk cache + LRU eviction
+    ├── robots.py                robots.txt gate (stdlib, fail-open) [2026-07-08]
     └── ollama_api.py / formatters.py / results.py / ...
 
 features/                        one responsibility per slice
     search/
       command.py                 mode_search
       engine.py                  thin dispatcher
-      backends/{base,searxng,minimax,zai}.py
+      backends/{base,searxng,minimax,zai,duckduckgo}.py
     read/
-      command.py                 mode_read
-      engine.py                  thin dispatcher + fallback chain
-      backends/{base,firecrawl,zai_reader}.py
-    research/command.py          orchestrator
-    ranking/engine.py            rerank + source-quality
+      command.py                 mode_read (unified onto read_with_fallback)
+      engine.py                  thin dispatcher + fallback chain (→ html last)
+      backends/{base,firecrawl,zai_reader,html}.py
+    research/command.py          orchestrator (--no-robots wired via partial)
+    ranking/
+      engine.py                  rerank + source-quality (stopword-aware overlap)
+      tei_rerank.py              optional TEI cross-encoder stage-2 [2026-07-08]
+      data/authority_domains.txt packaged authority list [2026-07-08]
     intelligence/engine.py       query profile + expand + focused extract
-    synthesis/engine.py          cited synthesis (Ollama local + cloud cascade)
+    synthesis/engine.py          cited synthesis + tolerant JSON extractor
 ```
 
 Adding a new backend = one file under `backends/<name>.py` + one entry in
@@ -90,7 +104,7 @@ Adding a new backend = one file under `backends/<name>.py` + one entry in
 
 ## Commands
 - Install (dev): `uv sync --extra test` (editable install)
-- Test: `uv run python -m pytest tests/ -q` (63 tests, network mocked) ·
+- Test: `uv run python -m pytest tests/ -q` (93 tests, network mocked) ·
   `--cov=web_research --cov-fail-under=85`
 - Lint: `uv run ruff check src tests` · Format: `uv run ruff format --check .`
 - Types: `uv run mypy src/`

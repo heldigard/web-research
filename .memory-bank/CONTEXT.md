@@ -1,5 +1,5 @@
 # CONTEXT - Current State
-> Updated: 2026-07-05 (architecture refactor SHIPPED)
+> Updated: 2026-07-08 (zero-dependency enhancement batch SHIPPED)
 
 ## What this project is
 The `web_research` engine extracted from `~/.claude/scripts/web_research/`
@@ -8,11 +8,32 @@ The `web_research` engine extracted from `~/.claude/scripts/web_research/`
 graduation pattern.
 
 ## Active Focus
-ARCHITECTURE REFACTOR SHIPPED (2026-07-05). Same public CLI + shim path;
-internals upgraded to typed Settings + HttpClient port + per-backend file
-slices + schema-versioned cache. 63 tests green (was 37), coverage 89%
-(gate 85%), mypy strict-clean, ruff format+lint clean. Live SearXNG
-smoke returns real results through the new architecture.
+ZERO-DEPENDENCY ENHANCEMENT BATCH SHIPPED (2026-07-08): 11 resilience /
+compliance / ranking / reader / search additions — all stdlib-only, all
+backward-compatible. Suite now **93 tests** (was 63), ruff check + format
+clean, mypy 0 issues. See `CHANGELOG.md` and `progress.md` (2026-07-08
+entry). Architecture refactor (2026-07-05) underneath is unchanged: typed
+Settings + HttpClient port + per-backend file slices + schema-versioned
+cache.
+
+## Recent Changes (2026-07-08 — enhancement batch)
+- Resilience: stdlib HTTP retry/backoff (`UrllibHttpClient`, env
+  `WEB_RESEARCH_HTTP_RETRIES`/`_BACKOFF`); cache size-bound LRU eviction
+  (`WEB_RESEARCH_CACHE_MAX_ENTRIES`/`_MAX_BYTES`).
+- Compliance: `robots.txt` gate (`shared/robots.py`, fail-open, `--no-robots`).
+- Ranking: authority domains → `ranking/data/authority_domains.txt`
+  (`importlib.resources`); stopword/punct-aware `query_word_overlap`;
+  optional TEI cross-encoder stage-2 (`ranking/tei_rerank.py`, env
+  `TEI_RERANK_URL` — Ollama has no native `/rerank` in 2026).
+- Reader: stdlib `HtmlReader` (`html.parser`) as zero-dep last-resort,
+  appended to the fallback chain (`requested → Firecrawl → Z.AI → HTML`).
+  `mode_read` unified onto `read_with_fallback`.
+- Search: zero-dep anonymous `duckduckgo` backend (unwraps `/l/?uddg`).
+- Synthesis: tolerant `_extract_json_object` (brace-balanced, prose/fence-aware).
+- CLI: `--engine duckduckgo` (search/research), `--engine html` +
+  `--no-robots` (read).
+- Deliberately NOT added (YAGNI / zero-dep): asyncio, instructor, diskcache,
+  trafilatura, tenacity.
 
 ## Recent Changes (2026-07-05)
 - Split `features/{search,read}/engine.py` into thin dispatchers + new
@@ -54,6 +75,7 @@ via `WEB_RESEARCH_SCRIPTS` (alias `CHEAP_LLM_HOME`) and degrades gracefully.
 ## Next Steps
 - cheap_llm.py graduation (separate future project — 33KB, 8+ consumers).
 - Live-model re-bench if `OLLAMA_SYNTH_MODEL` / `OLLAMA_EMBED` change.
-- Optional: ship the `httpx` HttpClient impl behind a feature flag.
-- Optional: extract `source_quality_score`'s hardcoded 27-domain list
-  to `~/.config/web-research/authority_domains.txt`.
+- Optional: ship the `httpx` HttpClient impl behind a feature flag (would
+  supersede the stdlib retry loop with connection pooling + async).
+- Optional: add a `ragas`/`promptfoo` eval suite to regression-test retrieval
+  quality (the "MRR 0.724" baseline is currently manual).
