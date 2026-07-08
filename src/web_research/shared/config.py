@@ -41,7 +41,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 # Default-model notes are kept inline (not broken out into separate constants)
 # because they document a single-bench decision recorded in MEMORY.md.
-_OLLAMA_DEFAULT_MODEL = "qwen3.5:4b"
+_OLLAMA_DEFAULT_MODEL = "cryptidbleh/gemma4-claude-opus-4.6:latest"
 _OLLAMA_DEFAULT_SYNTH_MODEL = (
     "hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M"  # web_synth combined #1, 2026-07-08 PM bench
 )
