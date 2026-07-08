@@ -53,7 +53,7 @@ def generate(
 ) -> str | None:
     """Generate text via local Ollama.
 
-    ``model`` defaults to OLLAMA_MODEL (qwen3.5:4b). Callers that need a stronger
+    ``model`` defaults to OLLAMA_MODEL (cryptidbleh/gemma4-claude-opus-4.6:latest). Callers that need a stronger
     judgment model for the FINAL output (e.g. synthesis) pass OLLAMA_SYNTH_MODEL.
     """
     if oc is None or not is_alive():
