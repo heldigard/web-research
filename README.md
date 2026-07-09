@@ -40,13 +40,14 @@ Ollama on `:11434`. Override via env: `SEARXNG_URL`, `FC_URL`, `OLLAMA_URL`.
 web-research search "rust async runtime 2026" -n 5 --rerank
 web-research read https://example.com/docs --engine firecrawl
 web-research research "what is claude code" -n 3 --scrape 2 --answer
+web-research research "latest API behavior" --smart --json
 ```
 
 | Subcommand | Does |
 |------------|------|
 | `search` | SearXNG/Z.AI/MiniMax → clean markdown results; `--smart` adds profiling + `--summary` a structured answer |
 | `read` | One URL → markdown via Firecrawl (JS-rendered) or Z.AI reader |
-| `research` | Search → scrape top K → Ollama/cloud synthesis with `[n]` citations |
+| `research` | Search → scrape top K → Ollama/cloud synthesis with `[n]` citations; `--json` returns answer, evidence, source provenance, cache state, and scraping status |
 
 Common flags: `--no-cache`, `--timeout N`, `--verbose`.
 

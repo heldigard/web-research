@@ -450,6 +450,67 @@ class CLITests(unittest.TestCase):
         data = json.loads(f.getvalue())
         self.assertEqual(len(data), 1)
 
+    @patch("ollama_client.is_alive", return_value=False)
+    def test_cli_research_json_emits_provenance_envelope(self, _mock_client_alive):
+        import web_research.features.research.command as research_cmd
+
+        result = {
+            "title": "Primary docs",
+            "url": "https://docs.example.test/feature",
+            "content": "search snippet",
+            "engine": "searxng",
+            "source": "docs.example.test",
+            "publishedDate": "2026-07-08",
+        }
+        with (
+            patch.object(research_cmd, "search_backends", return_value=[result]),
+            patch.object(research_cmd, "scrape_with_fallback", return_value="scraped evidence"),
+            patch.object(research_cmd, "synthesize", return_value="Grounded answer [1]."),
+            patch.object(research_cmd, "is_alive", return_value=False),
+        ):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = wr.main(["research", "feature", "--json", "--scrape", "1"])
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["status"], "ok")
+        self.assertFalse(payload["cache_hit"])
+        self.assertEqual(payload["scraping"], {"requested": 1, "succeeded": 1})
+        self.assertEqual(payload["sources"][0]["engine"], "searxng")
+        self.assertEqual(payload["sources"][0]["published_date"], "2026-07-08")
+        self.assertEqual(payload["evidence"][0]["text"], "scraped evidence")
+        self.assertEqual(payload["answer"], "Grounded answer [1].")
+        self.assertIn("generated_at", payload)
+
+    @patch("ollama_client.is_alive", return_value=False)
+    def test_cli_research_json_keeps_search_evidence_when_scrape_is_zero(self, _mock_client_alive):
+        import web_research.features.research.command as research_cmd
+
+        result = {
+            "title": "Search-only docs",
+            "url": "https://docs.example.test/search-only",
+            "content": "search evidence",
+            "engine": "searxng",
+            "source": "docs.example.test",
+            "publishedDate": "",
+        }
+        with (
+            patch.object(research_cmd, "search_backends", return_value=[result]),
+            patch.object(research_cmd, "is_alive", return_value=False),
+        ):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = wr.main(["research", "feature", "--json", "--scrape", "0"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(rc, 0)
+        self.assertEqual(payload["status"], "partial")
+        self.assertEqual(payload["scraping"], {"requested": 0, "succeeded": 0})
+        self.assertFalse(payload["sources"][0]["scraped"])
+        self.assertEqual(payload["evidence"][0]["text"], "search evidence")
+
     @patch("urllib.request.urlopen")
     @patch("ollama_client.is_alive")
     def test_cli_json_strips_internal_keys(self, mock_alive, mock_open):

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -28,19 +29,19 @@ from web_research.shared.ollama_api import is_alive
 
 def _search_phase(
     args: argparse.Namespace, time_range: str, cache_params: dict, queries: list[str]
-) -> list[dict]:
+) -> tuple[list[dict], bool]:
     """Return search results (cache-miss path runs the backend dispatch)."""
     cached = None if args.no_cache else cache_get("research", cache_params)
     if cached:
         _debug("cache", "research hit")
-        return cast(list[dict], cached["results"])
+        return cast(list[dict], cached["results"]), True
     _debug("cache", "research miss")
     results = search_backends(
         args.query, args.n, args.engine, "general", "en", time_range, queries=queries
     )
     if results and not args.no_cache:
         cache_set("research", cache_params, {"results": results})
-    return results
+    return results, False
 
 
 def _build_docs(
@@ -63,6 +64,9 @@ def _build_docs(
                 "title": r["title"],
                 "text": md[: args.max_chars],
                 "extracted": extracted[: args.max_chars],
+                "engine": r.get("engine", ""),
+                "source": r.get("source", ""),
+                "publishedDate": r.get("publishedDate", ""),
             }
         )
     return docs
@@ -85,8 +89,25 @@ def mode_research(args: argparse.Namespace) -> int:
         "code_analyze": getattr(args, "code_analyze", False),
     }
 
-    results = _search_phase(args, time_range, cache_params, queries)
+    results, cache_hit = _search_phase(args, time_range, cache_params, queries)
     if not results:
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "status": "no_results",
+                        "query": args.query,
+                        "generated_at": datetime.now(UTC).isoformat(),
+                        "cache_hit": cache_hit,
+                        "sources": [],
+                        "evidence": [],
+                        "answer": None,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
         print(f"_No results for: {args.query}_", file=sys.stderr)
         return 1
 
@@ -105,6 +126,24 @@ def mode_research(args: argparse.Namespace) -> int:
 
     source_names = ", ".join(dict.fromkeys(r.get("source", "searxng") for r in top))
     today = datetime.now(UTC).strftime("%Y-%m-%d")
+    answer = (
+        synthesize(args.query, docs, answer_mode=args.answer, structured=args.smart)
+        if docs
+        else None
+    )
+
+    if args.json:
+        _print_json_research(
+            args=args,
+            profile=profile,
+            top=top or results[: args.n],
+            docs=docs,
+            answer=answer,
+            cache_hit=cache_hit,
+            requested_scrapes=k,
+        )
+        return 0
+
     print(f"# Research: {args.query}\n")
     print(f"_Engine: {source_names} | Scraped: {len(docs)}/{k} | Date: {today}_\n")
 
@@ -113,7 +152,6 @@ def mode_research(args: argparse.Namespace) -> int:
         print(fmt_results(results))
         return 0
 
-    answer = synthesize(args.query, docs, answer_mode=args.answer, structured=args.smart)
     if answer:
         print(answer.strip())
         print("\n---\n## Sources")
@@ -122,6 +160,57 @@ def mode_research(args: argparse.Namespace) -> int:
 
     _print_full_docs(docs)
     return 0
+
+
+def _print_json_research(
+    *,
+    args: argparse.Namespace,
+    profile: dict,
+    top: list[dict],
+    docs: list[dict],
+    answer: str | None,
+    cache_hit: bool,
+    requested_scrapes: int,
+) -> None:
+    """Emit a stable evidence envelope for agents and cross-CLI orchestration."""
+    docs_by_url = {str(doc.get("url", "")): doc for doc in docs}
+    sources = []
+    evidence = []
+    for index, result in enumerate(top, 1):
+        url = str(result.get("url", ""))
+        doc = docs_by_url.get(url)
+        sources.append(
+            {
+                "index": index,
+                "title": result.get("title", ""),
+                "url": url,
+                "engine": result.get("engine", ""),
+                "source": result.get("source", ""),
+                "published_date": result.get("publishedDate", ""),
+                "scraped": doc is not None,
+            }
+        )
+        evidence.append(
+            {
+                "source": index,
+                "text": (
+                    doc.get("extracted", "") if doc is not None else result.get("content", "")
+                ),
+            }
+        )
+    payload = {
+        "schema_version": 1,
+        "status": "ok" if answer else "partial",
+        "query": args.query,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "cache_hit": cache_hit,
+        "profile": profile,
+        "scraping": {"requested": requested_scrapes, "succeeded": len(docs)},
+        "answer": answer.strip() if answer else None,
+        "sources": sources,
+        "evidence": evidence,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def _print_source_list(docs: list[dict]) -> None:
