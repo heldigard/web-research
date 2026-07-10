@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import urllib.error
 
+from web_research.capabilities import mode_capabilities
 from web_research.cli_parser import build_parser
 from web_research.features.read.command import mode_read
 from web_research.features.research.command import mode_research
@@ -13,7 +14,14 @@ from web_research.features.search.command import mode_search
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint."""
-    p = build_parser({"search": mode_search, "research": mode_research, "read": mode_read})
+    p = build_parser(
+        {
+            "search": mode_search,
+            "research": mode_research,
+            "read": mode_read,
+            "capabilities": mode_capabilities,
+        }
+    )
     args = p.parse_args(argv)
     try:
         return args.func(args)

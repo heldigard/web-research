@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor
-from importlib.resources import files
+from importlib.resources import files  # nosemgrep: python37-compatibility-importlib2
 from urllib.parse import urlparse
 
 from web_research.shared.ollama_api import cosine, embed, is_alive

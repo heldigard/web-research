@@ -19,7 +19,9 @@ import os
 import unittest
 import urllib.error
 import urllib.request
+from email.message import Message
 from pathlib import Path
+from typing import TextIO
 from unittest.mock import patch
 
 import web_research.shared.config as _config
@@ -73,6 +75,13 @@ class _FakeResponse:
         return False
 
 
+def _headers(**values: str) -> Message:
+    headers = Message()
+    for name, value in values.items():
+        headers[name.replace("_", "-")] = value
+    return headers
+
+
 class HttpRetryTests(unittest.TestCase):
     """Stdlib exponential-backoff retry on transient failures."""
 
@@ -88,7 +97,7 @@ class HttpRetryTests(unittest.TestCase):
     def test_urlerror_then_success_returns_body(self) -> None:
         calls = {"n": 0}
 
-        def side_effect(req: object, **kw: object) -> _FakeResponse:
+        def side_effect(req: object, **_kwargs: object) -> _FakeResponse:
             i = calls["n"]
             calls["n"] += 1
             if i == 0:
@@ -108,9 +117,9 @@ class HttpRetryTests(unittest.TestCase):
     def test_4xx_not_retried(self) -> None:
         calls = {"n": 0}
 
-        def side_effect(req: urllib.request.Request, **kw: object) -> object:
+        def side_effect(req: urllib.request.Request, **_kwargs: object) -> object:
             calls["n"] += 1
-            raise urllib.error.HTTPError(req.full_url, 404, "Nope", {}, None)
+            raise urllib.error.HTTPError(req.full_url, 404, "Nope", _headers(), None)
 
         with patch("urllib.request.urlopen", side_effect=side_effect):
             with self.assertRaises(urllib.error.HTTPError):
@@ -120,10 +129,10 @@ class HttpRetryTests(unittest.TestCase):
     def test_429_is_retried(self) -> None:
         calls = {"n": 0}
 
-        def side_effect(req: urllib.request.Request, **kw: object) -> object:
+        def side_effect(req: urllib.request.Request, **_kwargs: object) -> object:
             calls["n"] += 1
             if calls["n"] < 3:
-                raise urllib.error.HTTPError(req.full_url, 429, "Slow", {}, None)
+                raise urllib.error.HTTPError(req.full_url, 429, "Slow", _headers(), None)
             return _FakeResponse(b"late")
 
         with patch("urllib.request.urlopen", side_effect=side_effect):
@@ -132,16 +141,26 @@ class HttpRetryTests(unittest.TestCase):
         self.assertEqual(calls["n"], 3)
 
     def test_retry_after_parsed_and_capped(self) -> None:
-        e5 = urllib.error.HTTPError("http://x", 429, "Slow", {"Retry-After": "5"}, None)
+        e5 = urllib.error.HTTPError("http://x", 429, "Slow", _headers(Retry_After="5"), None)
         self.assertEqual(_retry_after_seconds(e5), 5.0)
-        e_huge = urllib.error.HTTPError("http://x", 429, "Slow", {"Retry-After": "9999"}, None)
+        e_huge = urllib.error.HTTPError(
+            "http://x", 429, "Slow", _headers(Retry_After="9999"), None
+        )
         self.assertEqual(_retry_after_seconds(e_huge), 30.0)  # capped
 
     def test_retry_after_absent_or_garbage(self) -> None:
-        none_hdr = urllib.error.HTTPError("http://x", 429, "Slow", {}, None)
+        none_hdr = urllib.error.HTTPError("http://x", 429, "Slow", _headers(), None)
         self.assertIsNone(_retry_after_seconds(none_hdr))
-        junk = urllib.error.HTTPError("http://x", 429, "Slow", {"Retry-After": "Wed, 21 Oct"}, None)
+        junk = urllib.error.HTTPError(
+            "http://x", 429, "Slow", _headers(Retry_After="Wed, 21 Oct"), None
+        )
         self.assertIsNone(_retry_after_seconds(junk))  # HTTP-date form unsupported
+
+    def test_non_http_urls_are_rejected_before_urlopen(self) -> None:
+        with patch("urllib.request.urlopen") as mock_open:
+            with self.assertRaisesRegex(ValueError, "absolute http"):
+                UrllibHttpClient().get_bytes("file:///etc/passwd")
+        mock_open.assert_not_called()
 
 
 class ReaderChainTests(unittest.TestCase):
@@ -150,7 +169,7 @@ class ReaderChainTests(unittest.TestCase):
     def test_chain_falls_through_to_html(self) -> None:
         html_body = b"<html><head><title>Ex</title></head><body><p>Hi there</p></body></html>"
 
-        def side_effect(req: urllib.request.Request, **kw: object) -> object:
+        def side_effect(req: urllib.request.Request, **_kwargs: object) -> object:
             url = req.full_url
             if "localhost:3002" in url:  # Firecrawl POST
                 raise urllib.error.URLError("firecrawl down")
@@ -252,6 +271,22 @@ class CacheEvictionTests(unittest.TestCase):
         bad.write_text("ignore me")
         entries, _ = _collect_cache_entries(str(bad.parent))
         self.assertTrue(all(p.endswith(".json") for p, _, _ in entries))
+
+    def test_failed_write_preserves_previous_complete_entry(self) -> None:
+        params = {"k": "stable"}
+        cache.set("atomic", params, {"value": "old"})
+
+        def partial_then_fail(entry: object, stream: TextIO) -> None:
+            del entry
+            stream.write("{")
+            raise OSError("simulated interrupted write")
+
+        with patch("web_research.shared.cache.json.dump", side_effect=partial_then_fail):
+            cache.set("atomic", params, {"value": "new"})
+
+        self.assertEqual(cache.get("atomic", params), {"value": "old"})
+        directory = Path(_config.CACHE_DIR or os.path.expanduser("~/.cache/web-research"))
+        self.assertEqual(list(directory.glob("*.tmp")), [])
 
 
 class RobotsTests(unittest.TestCase):

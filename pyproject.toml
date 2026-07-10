@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "web-research"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first web research engine for LLM agents: SearXNG + Firecrawl + Ollama rerank/synthesis, with cheap cloud fallback. Graduated from ~/.claude/scripts/web_research/."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,3 +55,22 @@ ignore_missing_imports = true
 
 [tool.pyright]
 extraPaths = ["src"]
+
+[tool.vulture]
+# Settings fields and TYPE_CHECKING aliases are consumed through config's
+# module-level __getattr__ compatibility proxy, which static analysis cannot see.
+ignore_names = [
+  "ollama_url",
+  "ollama_model",
+  "ollama_synth_model",
+  "ollama_embed",
+  "minimax_api_key",
+  "zai_api_key",
+  "web_synth_cloud_model",
+  "web_synth_max_context_chars",
+  "ecosystem_scripts",
+  "schema_version",
+  "SEARXNG_URL",
+  "FC_URL",
+  "FC_API_KEY",
+]

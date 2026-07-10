@@ -20,7 +20,9 @@ degradation when the harness is absent.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 from .config import ECOSYSTEM_SCRIPTS
 
@@ -49,11 +51,16 @@ except Exception:  # pragma: no cover — env-dependent
 # Contract floor this consumer needs (cheap_llm SemVer >= 1.1). The require()
 # gate fails fast on version drift instead of a cryptic mid-run error.
 _CHEAP_LLM_MIN_VERSION = "1.1"
+CheapComplete = Callable[..., dict[str, Any]]
+cheap_complete: CheapComplete | None = None
 
 try:
-    import cheap_llm
+    import importlib
 
+    cheap_llm = importlib.import_module("cheap_llm")
     cheap_llm.require(_CHEAP_LLM_MIN_VERSION)
-    from cheap_llm import cheap_complete  # cloud LLM cascade
+    candidate = getattr(cheap_llm, "cheap_complete", None)
+    if callable(candidate):
+        cheap_complete = cast(CheapComplete, candidate)
 except Exception:  # pragma: no cover — env-dependent
-    cheap_complete = None  # type: ignore[assignment]
+    pass

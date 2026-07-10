@@ -23,7 +23,7 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     """Construct the top-level parser.
 
     Args:
-        handlers: maps subcommand name ("search"/"research"/"read") to its
+        handlers: maps subcommand name (search/research/read/capabilities) to its
             mode function. Injected by the caller so this module does not
             import the modes (no cycle).
     """
@@ -37,6 +37,17 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version", version=f"web-research {_pkg_version}")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    capabilities = sub.add_parser(
+        "capabilities",
+        help="emit machine-readable capability metadata without network probes",
+    )
+    capabilities.add_argument(
+        "--json",
+        action="store_true",
+        help="accepted for uniform router invocation; output is always JSON",
+    )
+    capabilities.set_defaults(func=handlers["capabilities"])
 
     ps = sub.add_parser(
         "search", parents=[common], help="SearXNG search -> clean markdown results."

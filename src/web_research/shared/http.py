@@ -27,7 +27,7 @@ from typing import Protocol
 
 from . import config
 
-_USER_AGENT = "web-research/0.1 (+https://github.com/heldigard/web-research)"
+_USER_AGENT = "web-research/0.2 (+https://github.com/heldigard/web-research)"
 
 
 def _backoff_seconds(attempt: int, base: float, cap: float = 10.0) -> float:
@@ -92,22 +92,23 @@ class UrllibHttpClient:
         headers: dict | None = None,
         timeout: float | None = None,
     ) -> bytes:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("URL must be an absolute http:// or https:// URL")
         effective_timeout = config.TIMEOUT if timeout is None else timeout
         h = {"User-Agent": self._ua}
         if headers:
             h.update(headers)
         req = urllib.request.Request(url, data=data, headers=h)
-        # nosemgrep: dynamic-urllib-use-detected — URLs come from CLI args
-        # (user-supplied) or from backend response JSON (already-validated
-        # upstream at the SearXNG/Z.AI boundary). Internal code never
-        # constructs URLs from untrusted string concat.
         settings = config.get_settings()
         max_retries = max(0, settings.http_max_retries)
         base = max(0.0, settings.http_backoff_base)
         for attempt in range(max_retries + 1):
             wait = _backoff_seconds(attempt, base)
             try:
-                with urllib.request.urlopen(req, timeout=effective_timeout) as response:
+                with urllib.request.urlopen(  # nosemgrep: dynamic-urllib-use-detected
+                    req, timeout=effective_timeout
+                ) as response:
                     return response.read()
             except urllib.error.HTTPError as e:
                 # Retry only rate-limit + server-side errors; 4xx (except 429)

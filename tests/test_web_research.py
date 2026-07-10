@@ -55,7 +55,7 @@ def _noop_handler(_args):
 
 
 def _mock_urlopen(response_map: dict):
-    def side_effect(req, **kwargs):
+    def side_effect(req, **_kwargs):
         url = req.full_url
         for prefix, body in response_map.items():
             if url.startswith(prefix):
@@ -70,7 +70,7 @@ class SearchTests(unittest.TestCase):
         _clear_cache()
 
     def test_version_fallback_not_zero(self):
-        self.assertEqual(wr.__version__, "0.1.0")
+        self.assertEqual(wr.__version__, "0.2.0")
 
     def test_cli_version_uses_package_version(self):
         parser = build_parser(
@@ -78,13 +78,28 @@ class SearchTests(unittest.TestCase):
                 "search": _noop_handler,
                 "research": _noop_handler,
                 "read": _noop_handler,
+                "capabilities": _noop_handler,
             }
         )
         buf = io.StringIO()
         with self.assertRaises(SystemExit) as ctx, redirect_stdout(buf):
             parser.parse_args(["--version"])
         self.assertEqual(ctx.exception.code, 0)
-        self.assertIn("web-research 0.1.0", buf.getvalue())
+        self.assertIn("web-research 0.2.0", buf.getvalue())
+
+    def test_cli_capabilities_contract(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = wr.main(["capabilities", "--json"])
+        self.assertEqual(rc, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload["command"], "capabilities")
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["version"], "0.2.0")
+        by_name = {item["name"]: item for item in payload["capabilities"]}
+        self.assertEqual(set(by_name), {"search", "read", "research", "capabilities"})
+        self.assertFalse(by_name["capabilities"]["open_world"])
+        self.assertEqual(buf.getvalue().count("\n"), 1, "router manifest stays compact")
 
     @patch("urllib.request.urlopen")
     def test_searxng_search(self, mock_open):
@@ -242,7 +257,7 @@ class RerankTests(unittest.TestCase):
         qv = [1.0, 0.0]
         v1 = [0.0, 1.0]
         v2 = [1.0, 0.1]
-        mock_embed.side_effect = lambda text, **kw: (
+        mock_embed.side_effect = lambda text, **_kwargs: (
             qv if text == "q" else (v2 if "second" in text else v1)
         )
         results = [
@@ -689,7 +704,7 @@ class CLITests(unittest.TestCase):
         """P2: ThreadPoolExecutor must tolerate one URL failing mid-batch."""
         mock_alive.return_value = False
 
-        def side(req, **kwargs):
+        def side(req, **_kwargs):
             url = req.full_url
             if "localhost:8080/search" in url:
                 return FakeResponse(

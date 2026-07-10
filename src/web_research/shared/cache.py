@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import time
 from typing import Any
 
@@ -76,19 +77,39 @@ def get(prefix: str, params: dict, engine_tag: str | None = None) -> dict[str, A
 
 
 def set(prefix: str, params: dict, data: dict[str, Any], engine_tag: str | None = None) -> None:
-    """Store value in cache. Stamped with current schema + engine tag."""
-    path = os.path.join(_cache_dir(), _cache_key(prefix, params, engine_tag))
+    """Atomically store a schema-stamped value without exposing partial JSON."""
+    directory = _cache_dir()
+    path = os.path.join(directory, _cache_key(prefix, params, engine_tag))
     entry = {
         "schema": SCHEMA_VERSION,
         "ts": time.time(),
         "tag": engine_tag or "",
         "data": data,
     }
+    temp_path: str | None = None
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=directory,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_path = f.name
             json.dump(entry, f)
-    except OSError:
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    except (OSError, TypeError, ValueError):
         pass
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
     _evict_if_needed()
 
 
