@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from importlib.resources import files  # nosemgrep: python37-compatibility-importlib2
 from urllib.parse import urlparse
 
@@ -77,30 +78,29 @@ def _tokenize(text: str) -> set[str]:
     }
 
 
+@lru_cache(maxsize=1)
 def _load_authority_domains() -> frozenset[str]:
-    """Load authority domains from the packaged data file (cached on the function).
+    """Load authority domains from the packaged data file (memoized).
 
-    Falls back to an empty set if the resource is missing (e.g. an exotic
-    install layout) so the score degrades gracefully instead of crashing.
+    ``lru_cache(maxsize=1)`` replaces a manual function-attribute cache: the
+    data file is read at most once per process and the result (including the
+    empty-set fallback) is reused. Falls back to an empty set if the resource
+    is missing (e.g. an exotic install layout) so the score degrades gracefully
+    instead of crashing.
     """
-    cached = getattr(_load_authority_domains, "_cache", None)
-    if cached is not None:
-        return cached  # type: ignore[no-any-return]
     try:
         raw = (
             files("web_research.features.ranking.data")
             .joinpath("authority_domains.txt")
             .read_text(encoding="utf-8")
         )
-        domains = frozenset(
+        return frozenset(
             line.strip().lower()
             for line in raw.splitlines()
             if line.strip() and not line.strip().startswith("#")
         )
     except Exception:  # noqa: BLE001 — resource missing; degrade, don't crash
-        domains = frozenset()
-    _load_authority_domains._cache = domains  # type: ignore[attr-defined]
-    return domains
+        return frozenset()
 
 
 def source_quality_score(url: str, title: str, content: str) -> float:
