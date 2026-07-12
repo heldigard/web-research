@@ -49,7 +49,7 @@ def mode_search(args: argparse.Namespace) -> int:
         "lang": args.lang,
         "time": args.time,
         "smart": args.smart,
-        "summary": args.summary,
+        "rerank": args.rerank,
     }
     cached = None if args.no_cache else cache_get("search", cache_params)
     if cached:

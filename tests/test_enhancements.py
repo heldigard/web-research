@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from email.message import Message
 from pathlib import Path
-from typing import TextIO
+from typing import Literal, TextIO
 from unittest.mock import patch
 
 import web_research.shared.config as _config
@@ -71,7 +71,7 @@ class _FakeResponse:
     def __enter__(self) -> _FakeResponse:
         return self
 
-    def __exit__(self, *args: object) -> bool:
+    def __exit__(self, *args: object) -> Literal[False]:
         return False
 
 
@@ -143,9 +143,7 @@ class HttpRetryTests(unittest.TestCase):
     def test_retry_after_parsed_and_capped(self) -> None:
         e5 = urllib.error.HTTPError("http://x", 429, "Slow", _headers(Retry_After="5"), None)
         self.assertEqual(_retry_after_seconds(e5), 5.0)
-        e_huge = urllib.error.HTTPError(
-            "http://x", 429, "Slow", _headers(Retry_After="9999"), None
-        )
+        e_huge = urllib.error.HTTPError("http://x", 429, "Slow", _headers(Retry_After="9999"), None)
         self.assertEqual(_retry_after_seconds(e_huge), 30.0)  # capped
 
     def test_retry_after_absent_or_garbage(self) -> None:
@@ -254,16 +252,62 @@ class CacheEvictionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         _clear_cache()
+        _config.reload_settings()
 
     def test_evicts_oldest_beyond_cap(self) -> None:
-        import time
-
+        directory = Path(_config.CACHE_DIR or "~/.cache/web-research").expanduser()
         for i in range(5):
             cache.set("ev", {"i": i}, {"data": i})
-            time.sleep(0.02)
+            path = directory / cache._cache_key("ev", {"i": i})
+            os.utime(path, ns=((i + 1) * 1_000_000_000, (i + 1) * 1_000_000_000))
         remaining = [cache.get("ev", {"i": i}) for i in range(5)]
         present = [i for i, r in enumerate(remaining) if r is not None]
         self.assertEqual(present, [2, 3, 4])
+
+    def test_zero_entry_limit_keeps_multiple_entries_under_byte_budget(self) -> None:
+        _config.reload_settings(cache_max_entries=0, cache_max_bytes=10_000_000)
+
+        for i in range(3):
+            cache.set("bytes-only", {"i": i}, {"data": i})
+
+        self.assertEqual(
+            [cache.get("bytes-only", {"i": i}) for i in range(3)],
+            [{"data": 0}, {"data": 1}, {"data": 2}],
+        )
+
+    def test_both_disabled_limits_keep_multiple_entries(self) -> None:
+        _config.reload_settings(cache_max_entries=0, cache_max_bytes=0)
+
+        for i in range(3):
+            cache.set("unlimited", {"i": i}, {"data": i})
+
+        entries, _ = _collect_cache_entries(
+            str(Path(_config.CACHE_DIR or "~/.cache/web-research").expanduser())
+        )
+        self.assertEqual(len(entries), 3)
+
+    def test_cache_hit_promotes_entry_for_lru_eviction(self) -> None:
+        _config.reload_settings(cache_max_entries=2, cache_max_bytes=0)
+        cache.set("lru", {"key": "a"}, {"value": "a"})
+        cache.set("lru", {"key": "b"}, {"value": "b"})
+        directory = Path(_config.CACHE_DIR or "~/.cache/web-research").expanduser()
+        path_a = directory / cache._cache_key("lru", {"key": "a"})
+        path_b = directory / cache._cache_key("lru", {"key": "b"})
+        os.utime(path_a, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(path_b, ns=(2_000_000_000, 2_000_000_000))
+
+        self.assertEqual(cache.get("lru", {"key": "a"}), {"value": "a"})
+        cache.set("lru", {"key": "c"}, {"value": "c"})
+
+        self.assertIsNone(cache.get("lru", {"key": "b"}))
+        self.assertEqual(cache.get("lru", {"key": "a"}), {"value": "a"})
+        self.assertEqual(cache.get("lru", {"key": "c"}), {"value": "c"})
+
+    def test_cache_hit_survives_recency_update_failure(self) -> None:
+        cache.set("touch", {"key": 1}, {"value": "ok"})
+
+        with patch("web_research.shared.cache.os.utime", side_effect=OSError("read-only")):
+            self.assertEqual(cache.get("touch", {"key": 1}), {"value": "ok"})
 
     def test_collect_skips_non_json(self) -> None:
         cache.set("ev", {"k": 1}, {"data": 1})
@@ -281,10 +325,14 @@ class CacheEvictionTests(unittest.TestCase):
             stream.write("{")
             raise OSError("simulated interrupted write")
 
-        with patch("web_research.shared.cache.json.dump", side_effect=partial_then_fail):
+        with (
+            patch("web_research.shared.cache._evict_if_needed") as evict,
+            patch("web_research.shared.cache.json.dump", side_effect=partial_then_fail),
+        ):
             cache.set("atomic", params, {"value": "new"})
 
         self.assertEqual(cache.get("atomic", params), {"value": "old"})
+        evict.assert_not_called()
         directory = Path(_config.CACHE_DIR or os.path.expanduser("~/.cache/web-research"))
         self.assertEqual(list(directory.glob("*.tmp")), [])
 

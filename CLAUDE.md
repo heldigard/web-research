@@ -48,12 +48,16 @@ per CLI mode).
 ## CLI
 
 ```
-web-research search  <query> [-n 8] [--engine searxng|zai|minimax] [--time day|week|month|year]
-                             [--rerank] [--smart] [--summary] [--json] [--cat --lang]
-web-research read    <url>   [--engine firecrawl|zai] [--max-chars N] [--wait N] [--zai-timeout N]
-web-research research <query> [-n 6] [--scrape 3] [--engine ...] [--time ...]
+web-research search  <query> [-n 8] [--engine searxng|zai|minimax|duckduckgo]
+                             [--cat general] [--lang en] [--time day|week|month|year]
+                             [--rerank] [--smart] [--summary] [--json]
+web-research read    <url>   [--engine firecrawl|zai|html] [--no-robots]
+                             [--max-chars N] [--wait N] [--zai-timeout N]
+web-research research <query> [-n 6] [--scrape 3]
+                             [--engine searxng|zai|minimax|duckduckgo] [--time ...]
+                             [--answer] [--smart] [--max-chars N] [--no-robots]
+                             [--code-analyze] [--json]
 web-research capabilities  # machine-readable router contract; no network probes
-                             [--answer] [--smart] [--max-chars N]
 
 Common: --no-cache --timeout N --verbose
 ```

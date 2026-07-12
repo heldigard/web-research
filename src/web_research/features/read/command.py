@@ -27,7 +27,13 @@ def _fetch_markdown(args: argparse.Namespace) -> str:
 def mode_read(args: argparse.Namespace) -> int:
     """Read one URL into markdown."""
     apply_common(args)
-    cache_params = {"url": args.url, "engine": args.engine, "wait": args.wait}
+    cache_params = {
+        "url": args.url,
+        "engine": args.engine,
+        "wait": args.wait,
+        "zai_timeout": args.zai_timeout,
+        "respect_robots": not getattr(args, "no_robots", False),
+    }
     cached = None if args.no_cache else cache_get("read", cache_params)
     if cached:
         _debug("cache", "read hit")

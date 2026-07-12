@@ -9,7 +9,9 @@ from web_research.shared import config
 
 def apply_common(args: Namespace) -> None:
     """Push global CLI overrides (``--timeout``, ``--verbose``) into module config."""
-    if getattr(args, "timeout", None):
-        config.TIMEOUT = args.timeout
+    overrides: dict[str, object] = {}
+    if getattr(args, "timeout", None) is not None:
+        overrides["timeout"] = args.timeout
     if getattr(args, "verbose", False):
-        config.VERBOSE = True
+        overrides["verbose"] = True
+    config.reload_settings(**overrides)

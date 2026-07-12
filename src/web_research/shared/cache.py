@@ -73,6 +73,10 @@ def get(prefix: str, params: dict, engine_tag: str | None = None) -> dict[str, A
             pass
         return None
 
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass
     return entry.get("data")
 
 
@@ -104,13 +108,19 @@ def set(prefix: str, params: dict, data: dict[str, Any], engine_tag: str | None 
         temp_path = None
     except (OSError, TypeError, ValueError):
         pass
+    else:
+        _evict_if_needed()
     finally:
         if temp_path:
             try:
                 os.remove(temp_path)
             except OSError:
                 pass
-    _evict_if_needed()
+
+
+def _over_budget(count: int, total: int, max_entries: int, max_bytes: int) -> bool:
+    """Return whether either enabled cache budget is exceeded."""
+    return (max_entries > 0 and count > max_entries) or (max_bytes > 0 and total > max_bytes)
 
 
 def _evict_if_needed() -> None:
@@ -127,14 +137,14 @@ def _evict_if_needed() -> None:
     if max_entries <= 0 and max_bytes <= 0:
         return
     entries, total = _collect_cache_entries(_cache_dir())
-    if len(entries) <= max(max_entries, 1) and (max_bytes <= 0 or total <= max_bytes):
+    if not _over_budget(len(entries), total, max_entries, max_bytes):
         return
     # Oldest first (lowest mtime) — that is the LRU victim order.
-    entries.sort(key=lambda item: item[1])
+    entries.sort(key=lambda item: (item[1], item[0]))
     count = len(entries)
     running_total = total
     for path, _mtime, size in entries:
-        if count <= max(max_entries, 1) and (max_bytes <= 0 or running_total <= max_bytes):
+        if not _over_budget(count, running_total, max_entries, max_bytes):
             break
         try:
             os.remove(path)

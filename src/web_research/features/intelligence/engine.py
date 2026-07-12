@@ -14,6 +14,42 @@ _FOCUSED_MIN_TEXT_LEN = 800  # below this, return text as-is (no extraction need
 _FOCUSED_LLM_CHARS = 6000  # max chars sent to the LLM extractor
 _HEURISTIC_TOP_PARAGRAPHS = 4  # top-N paragraphs in deterministic fallback
 _HEURISTIC_FALLBACK_CHARS = 1200  # first N chars when heuristic finds nothing
+_VALID_INTENTS = frozenset({"general", "troubleshooting", "docs", "comparison", "news"})
+_VALID_FORMATS = frozenset({"snippet", "paragraph", "table", "step_list"})
+
+
+def _string_list(value: object, fallback: object, *, allow_empty: bool = False) -> list[str]:
+    """Return stripped string items from ``value`` or a safe fallback list."""
+    items = value if isinstance(value, list) else []
+    cleaned = [item.strip() for item in items if isinstance(item, str) and item.strip()]
+    if cleaned or (allow_empty and isinstance(value, list)):
+        return cleaned
+    fallback_items = fallback if isinstance(fallback, list) else []
+    return [item for item in fallback_items if isinstance(item, str)]
+
+
+def _enum_value(value: object, fallback: object, allowed: frozenset[str]) -> str:
+    """Return a known string enum value, otherwise the deterministic fallback."""
+    if isinstance(value, str) and value in allowed:
+        return value
+    return fallback if isinstance(fallback, str) else ""
+
+
+def _normalize_profile(raw: object, fallback: dict[str, object]) -> dict[str, object]:
+    """Normalize untrusted model output without mutating it or ``fallback``."""
+    source = raw if isinstance(raw, dict) else {}
+    recency = source.get("needs_recency")
+    return {
+        "intent": _enum_value(source.get("intent"), fallback["intent"], _VALID_INTENTS),
+        "needs_recency": (recency if type(recency) is bool else bool(fallback["needs_recency"])),
+        "preferred_sites": _string_list(
+            source.get("preferred_sites"), fallback["preferred_sites"], allow_empty=True
+        ),
+        "expected_format": _enum_value(
+            source.get("expected_format"), fallback["expected_format"], _VALID_FORMATS
+        ),
+        "expand_queries": _string_list(source.get("expand_queries"), fallback["expand_queries"]),
+    }
 
 
 def _today() -> str:
@@ -30,7 +66,7 @@ def query_profile(query: str) -> dict:
     conservative rule-based profile.
     """
     q = query.lower()
-    default = {
+    default: dict[str, object] = {
         "intent": "general",
         "needs_recency": False,
         "preferred_sites": [],
@@ -71,14 +107,7 @@ def query_profile(query: str) -> dict:
     raw = generate(prompt, system=system, temperature=0.0)
     if not raw:
         return default
-    profile = extract_json_object(raw)
-    if not isinstance(profile, dict):
-        return default
-    for key in default:
-        profile.setdefault(key, default[key])
-    if not isinstance(profile["expand_queries"], list) or not profile["expand_queries"]:
-        profile["expand_queries"] = [query]
-    return profile
+    return _normalize_profile(extract_json_object(raw), default)
 
 
 def expand_queries(query: str, profile: dict | None = None) -> list[str]:
@@ -86,8 +115,11 @@ def expand_queries(query: str, profile: dict | None = None) -> list[str]:
     profile = profile or query_profile(query)
     out = [query]
     seen: set[str] = {query}
-    eqs = profile.get("expand_queries") or []
+    raw_eqs = profile.get("expand_queries") or []
+    eqs = raw_eqs if isinstance(raw_eqs, list) else []
     for v in eqs:
+        if not isinstance(v, str):
+            continue
         v = v.strip()
         if v and v not in seen and len(out) < 5:
             seen.add(v)
@@ -109,8 +141,12 @@ def search_queries(query: str, profile: dict | None = None, max_queries: int = 4
     out = expand_queries(query, profile)[:max_queries]
     seen = {q.lower() for q in out}
 
-    for site in profile.get("preferred_sites") or []:
-        site = str(site).strip()
+    raw_sites = profile.get("preferred_sites") or []
+    sites = raw_sites if isinstance(raw_sites, list) else []
+    for site in sites:
+        if not isinstance(site, str):
+            continue
+        site = site.strip()
         if not site.startswith("site:") or len(out) >= max_queries:
             continue
         variant = f"{query} {site}"

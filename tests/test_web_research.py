@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import unittest
 import urllib.error
 from argparse import Namespace
@@ -99,6 +100,64 @@ class SearchTests(unittest.TestCase):
         by_name = {item["name"]: item for item in payload["capabilities"]}
         self.assertEqual(set(by_name), {"search", "read", "research", "capabilities"})
         self.assertFalse(by_name["capabilities"]["open_world"])
+        self.assertEqual(by_name["search"]["engines"], ["searxng", "minimax", "zai", "duckduckgo"])
+        self.assertEqual(by_name["read"]["engines"], ["firecrawl", "zai", "html"])
+        self.assertEqual(
+            by_name["research"]["engines"], ["searxng", "minimax", "zai", "duckduckgo"]
+        )
+        self.assertEqual(by_name["capabilities"]["engines"], [])
+        self.assertEqual(
+            by_name["search"]["options"]["cache"],
+            {"flag": "--no-cache", "default": False, "effect": "bypass_disk_cache"},
+        )
+        self.assertEqual(
+            by_name["search"]["options"]["verbose"], {"flag": "--verbose", "default": False}
+        )
+        self.assertEqual(
+            by_name["search"]["options"]["count"], {"flag": "-n", "type": "integer", "default": 8}
+        )
+        self.assertEqual(
+            by_name["search"]["options"]["time"],
+            {"flag": "--time", "values": ["day", "week", "month", "year"]},
+        )
+        self.assertEqual(
+            by_name["read"]["options"],
+            {
+                "cache": {"flag": "--no-cache", "default": False, "effect": "bypass_disk_cache"},
+                "timeout": {"flag": "--timeout", "type": "integer", "unit": "seconds"},
+                "verbose": {"flag": "--verbose", "default": False},
+                "engine": {"flag": "--engine", "default": "firecrawl"},
+                "robots": {"default": "enforce", "bypass_flag": "--no-robots"},
+                "wait": {"flag": "--wait", "type": "integer", "unit": "seconds", "default": 0},
+                "zai_timeout": {
+                    "flag": "--zai-timeout",
+                    "type": "integer",
+                    "unit": "seconds",
+                    "default": 20,
+                },
+                "max_chars": {"flag": "--max-chars", "type": "integer", "default": 12000},
+            },
+        )
+        self.assertEqual(
+            by_name["research"]["options"]["code_analyze"],
+            {
+                "flag": "--code-analyze",
+                "default": False,
+                "dependency": "codeq",
+                "unavailable": "no_op",
+                "structured_output": "local_code_context",
+            },
+        )
+        self.assertEqual(
+            by_name["research"]["options"]["robots"],
+            {"default": "enforce", "bypass_flag": "--no-robots"},
+        )
+        self.assertEqual(
+            by_name["research"]["options"]["verbose"], {"flag": "--verbose", "default": False}
+        )
+        self.assertEqual(
+            by_name["research"]["options"]["count"], {"flag": "-n", "type": "integer", "default": 6}
+        )
         self.assertEqual(buf.getvalue().count("\n"), 1, "router manifest stays compact")
 
     @patch("urllib.request.urlopen")
@@ -329,6 +388,59 @@ class IntelligenceTests(unittest.TestCase):
             out,
             ["q", "q exact", "q alternative", "q site:docs.example.com"],
         )
+
+    @patch("web_research.features.intelligence.engine.generate")
+    @patch("web_research.features.intelligence.engine.is_alive")
+    def test_query_profile_normalizes_malformed_llm_fields(self, mock_alive, mock_generate):
+        mock_alive.return_value = True
+        mock_generate.return_value = json.dumps(
+            {
+                "intent": 42,
+                "needs_recency": "false",
+                "preferred_sites": "site:invalid.example",
+                "expected_format": "spreadsheet",
+                "expand_queries": [1, None, "  valid query  "],
+                "ignored": "field",
+            }
+        )
+
+        profile = wr.query_profile("docs api reference")
+
+        self.assertEqual(profile["intent"], "docs")
+        self.assertFalse(profile["needs_recency"])
+        self.assertEqual(profile["expected_format"], "paragraph")
+        self.assertEqual(profile["expand_queries"], ["valid query"])
+        self.assertNotIn("ignored", profile)
+
+    def test_query_helpers_skip_non_string_profile_values(self):
+        profile = {
+            "expand_queries": [1, None, "  q alternative  "],
+            "preferred_sites": [object(), "site:docs.example.com"],
+        }
+
+        self.assertEqual(wr.expand_queries("q", profile), ["q", "q alternative"])
+        self.assertEqual(
+            wr.search_queries("q", profile, max_queries=3),
+            ["q", "q alternative", "q site:docs.example.com"],
+        )
+
+    @patch("web_research.features.intelligence.engine.generate")
+    @patch("web_research.features.intelligence.engine.is_alive")
+    def test_query_profile_preserves_valid_empty_preferred_sites(self, mock_alive, mock_generate):
+        mock_alive.return_value = True
+        mock_generate.return_value = json.dumps(
+            {
+                "intent": "docs",
+                "needs_recency": False,
+                "preferred_sites": [],
+                "expected_format": "paragraph",
+                "expand_queries": ["docs api reference"],
+            }
+        )
+
+        profile = wr.query_profile("docs api reference")
+
+        self.assertEqual(profile["preferred_sites"], [])
 
 
 class RankingTests(unittest.TestCase):
@@ -741,27 +853,75 @@ class ConfigFlagTests(unittest.TestCase):
     def setUp(self):
         _clear_cache()
 
+    def tearDown(self):
+        _config.reload_settings()
+
     def test_apply_common_sets_timeout_and_verbose(self):
         from web_research.shared.cli_helpers import apply_common
 
-        orig_t, orig_v = _config.TIMEOUT, _config.VERBOSE
-        try:
+        with patch.dict(os.environ, {"WEB_RESEARCH_TIMEOUT": "41", "WEB_RESEARCH_VERBOSE": "0"}):
             apply_common(Namespace(timeout=99, verbose=True))
             self.assertEqual(_config.TIMEOUT, 99)
             self.assertTrue(_config.VERBOSE)
-        finally:
-            _config.TIMEOUT, _config.VERBOSE = orig_t, orig_v
 
-    def test_apply_common_none_keeps_defaults(self):
+            apply_common(Namespace(timeout=None, verbose=False))
+            self.assertEqual(_config.TIMEOUT, 41)
+            self.assertFalse(_config.VERBOSE)
+
+    def test_apply_common_without_flags_preserves_environment_defaults(self):
         from web_research.shared.cli_helpers import apply_common
 
-        orig_t, orig_v = _config.TIMEOUT, _config.VERBOSE
-        try:
+        with patch.dict(os.environ, {"WEB_RESEARCH_TIMEOUT": "17", "WEB_RESEARCH_VERBOSE": "1"}):
             apply_common(Namespace(timeout=None, verbose=False))
-            self.assertEqual(_config.TIMEOUT, orig_t)
-            self.assertFalse(_config.VERBOSE)
-        finally:
-            _config.TIMEOUT, _config.VERBOSE = orig_t, orig_v
+            self.assertEqual(_config.TIMEOUT, 17)
+            self.assertTrue(_config.VERBOSE)
+
+
+class CacheVariantTests(unittest.TestCase):
+    """Options that alter fetched/ranked artifacts must not share cache entries."""
+
+    def setUp(self):
+        _clear_cache()
+
+    def tearDown(self):
+        _clear_cache()
+        _config.reload_settings()
+
+    @patch("web_research.features.search.command.rerank_results")
+    @patch("web_research.features.search.command.search_backends")
+    def test_search_cache_separates_rerank_mode(self, search_backends, rerank_results):
+        search_backends.return_value = [
+            {"title": "T", "url": "https://x", "content": "c", "source": "test"}
+        ]
+        rerank_results.side_effect = lambda _query, results: results
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(wr.main(["search", "cache-key", "--rerank"]), 0)
+            self.assertEqual(wr.main(["search", "cache-key"]), 0)
+
+        self.assertEqual(search_backends.call_count, 2)
+
+    @patch("web_research.features.read.command.read_with_fallback")
+    def test_read_cache_separates_robots_policy(self, read_with_fallback):
+        read_with_fallback.side_effect = lambda _url, **kwargs: (
+            "bypassed" if not kwargs["respect_robots"] else "respecting"
+        )
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(wr.main(["read", "https://example.com", "--no-robots"]), 0)
+            self.assertEqual(wr.main(["read", "https://example.com"]), 0)
+
+        self.assertEqual(read_with_fallback.call_count, 2)
+
+    @patch("web_research.features.read.command.read_with_fallback")
+    def test_read_cache_separates_zai_timeout(self, read_with_fallback):
+        read_with_fallback.side_effect = lambda _url, **kwargs: f"timeout={kwargs['zai_timeout']}"
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(wr.main(["read", "https://example.com", "--zai-timeout", "20"]), 0)
+            self.assertEqual(wr.main(["read", "https://example.com", "--zai-timeout", "60"]), 0)
+
+        self.assertEqual(read_with_fallback.call_count, 2)
 
 
 class RenderStructuredTests(unittest.TestCase):
@@ -873,7 +1033,9 @@ class CacheTTLTests(unittest.TestCase):
         entry = _json.loads(files[0].read_text())
         entry["ts"] = time.time() - _config.CACHE_TTL_SECONDS - 10
         files[0].write_text(_json.dumps(entry))
-        self.assertIsNone(cache.get("ttl", {"k": "v"}))
+        with patch("web_research.shared.cache.os.utime") as touch:
+            self.assertIsNone(cache.get("ttl", {"k": "v"}))
+        touch.assert_not_called()
 
 
 class FallbackTests(unittest.TestCase):

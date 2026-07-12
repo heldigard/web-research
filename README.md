@@ -31,27 +31,51 @@ cd web-research
 uv sync            # or: pip install -e .[test]
 ```
 
-Requires the self-hosted services: SearXNG on `:8080`, Firecrawl on `:3002`,
-Ollama on `:11434`. Override via env: `SEARXNG_URL`, `FC_URL`, `OLLAMA_URL`.
+The local-first path uses SearXNG on `:8080`, Firecrawl on `:3002`, and Ollama
+on `:11434`. If Firecrawl and Z.AI are unavailable, reads fall back to a
+stdlib HTML extractor. Override service URLs with `SEARXNG_URL`, `FC_URL`, and
+`OLLAMA_URL`.
 
 ## Usage
 
 ```bash
 web-research search "rust async runtime 2026" -n 5 --rerank
 web-research read https://example.com/docs --engine firecrawl
+web-research read https://example.com/docs --engine html --no-robots
 web-research research "what is claude code" -n 3 --scrape 2 --answer
 web-research research "latest API behavior" --smart --json
+web-research research "how rerank_results is used" --code-analyze
 web-research capabilities
 ```
 
 | Subcommand | Does |
 |------------|------|
-| `search` | SearXNG/Z.AI/MiniMax → clean markdown results; `--smart` adds profiling + `--summary` a structured answer |
-| `read` | One URL → markdown via Firecrawl (JS-rendered) or Z.AI reader |
-| `research` | Search → scrape top K → Ollama/cloud synthesis with `[n]` citations; `--json` returns answer, evidence, source provenance, cache state, and scraping status |
+| `search` | SearXNG, DuckDuckGo, Z.AI, or MiniMax → clean markdown results; `--smart` adds profiling and `--summary` a structured answer |
+| `read` | One URL → markdown via Firecrawl, Z.AI, or the stdlib HTML reader; `--no-robots` explicitly bypasses the default robots gate |
+| `research` | Search → scrape top K → Ollama/cloud synthesis with `[n]` citations; `--json` returns evidence/provenance and `--code-analyze` can add local `codeq` context |
 | `capabilities` | Compact JSON tool cards for routers; no network probes |
 
 Common flags: `--no-cache`, `--timeout N`, `--verbose`.
+
+## Configuration
+
+The on-disk JSON cache defaults to `~/.cache/web-research/`. Configure it with:
+
+- `WEB_RESEARCH_CACHE_DIR` and `WEB_RESEARCH_CACHE_TTL` (default 3600 seconds).
+- `WEB_RESEARCH_CACHE_MAX_ENTRIES` (default 500) and
+  `WEB_RESEARCH_CACHE_MAX_BYTES` (default 50 MB). A value of `0` disables that
+  limit independently, so byte-only and entry-only budgets work as expected.
+- `WEB_RESEARCH_HTTP_RETRIES` (default 2) and
+  `WEB_RESEARCH_HTTP_BACKOFF` (default 0.2 seconds).
+
+Valid cache hits update eviction recency without extending their serialized
+TTL. Cache variants that change the artifact—such as reranking, robots policy,
+or reader timeout—are isolated from one another. Use `--no-cache` to bypass
+both reads and writes.
+
+Readers respect `robots.txt` by default and fail open when it cannot be loaded.
+`--no-robots` is an explicit per-command bypass; content fetched under that
+policy is not reused by a later robots-respecting read.
 
 ## Ecosystem integration
 

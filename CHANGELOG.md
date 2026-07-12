@@ -4,11 +4,26 @@ All notable changes to `web-research` are documented here. The project stays
 **zero-dependency, local-first** (stdlib only) — every enhancement below honors
 that constraint.
 
-## [Unreleased] — 2026-07-08
+## [Unreleased] — 2026-07-12
 
 Enhancement batch: resilience, compliance, ranking quality, and three new
 pluggable backends — all stdlib-only, all backward-compatible (existing CLI,
 public functions, and on-disk cache format unchanged).
+
+### Correctness hardening (2026-07-12)
+
+- Cache entry and byte budgets are now independent: `0` disables only that
+  axis instead of accidentally imposing a one-entry cap. Valid reads promote
+  recency by mtime, while TTL remains based on the serialized timestamp.
+- Failed atomic cache writes no longer trigger eviction of healthy entries;
+  equal mtimes use path ordering for deterministic victim selection.
+- Search caches distinguish reranked from unranked results. Read caches
+  distinguish robots policy and reader timeout, preventing `--no-robots`
+  content from satisfying a later robots-respecting invocation.
+- LLM query profiles are normalized field by field, so valid JSON with invalid
+  types degrades to deterministic defaults instead of crashing smart flows.
+- Common CLI settings reload from environment on every embedded `main()` call,
+  preventing `--timeout` and `--verbose` from leaking into later calls.
 
 ### Resilience
 - **HTTP retry/backoff (stdlib)** — `UrllibHttpClient._request` now retries
@@ -20,8 +35,8 @@ public functions, and on-disk cache format unchanged).
 - **Cache size-bound LRU eviction** — `cache.set()` now sweeps oldest entries
   by mtime when entry-count or byte budgets are exceeded, so the cache dir
   no longer grows unbounded. Config: `WEB_RESEARCH_CACHE_MAX_ENTRIES`
-  (default `500`), `WEB_RESEARCH_CACHE_MAX_BYTES` (default `50 MB`, `0` =
-  no limit). (`shared/cache.py`, `shared/config.py`)
+  (default `500`, `0` = no limit), `WEB_RESEARCH_CACHE_MAX_BYTES` (default
+  `50 MB`, `0` = no limit). (`shared/cache.py`, `shared/config.py`)
 
 ### Crawl compliance
 - **robots.txt gate** — `read_with_fallback` checks `robots.txt` before
