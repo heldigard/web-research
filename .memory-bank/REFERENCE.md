@@ -69,9 +69,22 @@ On-disk JSON cache at `WEB_RESEARCH_CACHE_DIR` (default
 `~/.cache/web-research/`), TTL `WEB_RESEARCH_CACHE_TTL` (default 3600s).
 Bypass with `--no-cache`.
 
-**Size-bound LRU eviction (2026-07-08):** every `set()` sweeps oldest entries
-by mtime when `WEB_RESEARCH_CACHE_MAX_ENTRIES` (default 500) or
+**Size-bound LRU eviction (corrected 2026-07-12):** every successful `set()`
+sweeps least-recently-used entries by mtime when
+`WEB_RESEARCH_CACHE_MAX_ENTRIES` (default 500; `0` = no limit) or
 `WEB_RESEARCH_CACHE_MAX_BYTES` (default 50 MB; `0` = no limit) is exceeded.
+Each axis is independent. Valid `get()` calls promote mtime but TTL continues
+to use the serialized `ts`. Failed writes do not trigger eviction.
+
+Search cache keys distinguish reranked/unranked artifacts. Read cache keys
+distinguish robots policy and `zai_timeout`; content fetched with
+`--no-robots` cannot satisfy a later robots-respecting read.
+
+## Capability manifest options (2026-07-12)
+`web-research capabilities` retains schema version 1 and all original fields,
+with additive per-command `options` metadata for engines, cache/timeout/
+verbose controls, robots policy, reader limits, structured output, and
+`research --code-analyze` (`dependency=codeq`, unavailable=`no_op`).
 
 **Schema-versioned (2026-07-05):** every entry is stamped with
 `SCHEMA_VERSION` (= 1) and an optional caller-supplied `engine_tag`.

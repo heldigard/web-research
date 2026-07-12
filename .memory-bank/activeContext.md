@@ -1,4 +1,11 @@
 # Active Context
+- 2026-07-12 coordination: Codex is updating only project memory files
+  (`CONTEXT.md`, `currentTask.md`, `progress.md`, `REFERENCE.md`) for the
+  completed cache/CLI resilience audit. Preserve concurrent cheap-llm work and
+  append rather than overwrite if both sessions update progress.
+- 2026-07-12: cache/CLI resilience audit complete locally (125 tests,
+  89.30% coverage, full codescan clean). No commit/push performed. Plan and
+  completed review todo live under `docs/plans/` and `todos/`.
 - 2026-07-08: cross-CLI ecosystem improvements SHIPPED (P4 + P1 phase-1).
 
 ## Current Objective

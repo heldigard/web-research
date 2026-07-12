@@ -1,5 +1,5 @@
 # CONTEXT - Current State
-> Updated: 2026-07-08 (zero-dependency enhancement batch SHIPPED)
+> Updated: 2026-07-12 (cache + CLI resilience audit SHIPPED locally)
 
 ## What this project is
 The `web_research` engine extracted from `~/.claude/scripts/web_research/`
@@ -8,13 +8,27 @@ The `web_research` engine extracted from `~/.claude/scripts/web_research/`
 graduation pattern.
 
 ## Active Focus
-ZERO-DEPENDENCY ENHANCEMENT BATCH SHIPPED (2026-07-08): 11 resilience /
-compliance / ranking / reader / search additions — all stdlib-only, all
-backward-compatible. Suite now **93 tests** (was 63), ruff check + format
-clean, mypy 0 issues. See `CHANGELOG.md` and `progress.md` (2026-07-08
-entry). Architecture refactor (2026-07-05) underneath is unchanged: typed
-Settings + HttpClient port + per-backend file slices + schema-versioned
-cache.
+CACHE + CLI RESILIENCE AUDIT COMPLETED (2026-07-12): cache budgets/LRU and
+policy-aware keys corrected; LLM query profiles normalized; embedded CLI
+settings made reentrant; machine capability cards enriched with additive
+option metadata. Suite now **125 tests**, 89.30% coverage, Ruff + mypy clean,
+build green, and codescan reports 0 secrets/SAST/dead/lint/type/architecture
+findings. Changes remain local/uncommitted on `feat/zero-dep-enhancements`.
+
+## Recent Changes (2026-07-12 — audit hardening)
+- Cache: `0` independently disables entry/byte limits; valid hits promote
+  mtime without extending serialized TTL; deterministic `(mtime, path)`
+  eviction; failed writes no longer evict healthy entries.
+- Cache correctness: search keys separate `--rerank`; read keys separate
+  robots policy and `--zai-timeout`, preventing bypassed content reuse.
+- Intelligence: LLM profile output is normalized field-by-field and direct
+  query helpers skip malformed values; valid empty preferred-site lists remain
+  empty.
+- CLI: `apply_common()` reloads environment-derived Settings per invocation,
+  preventing timeout/verbose leakage in embedded callers.
+- Agent-native contract: schema-v1 capability cards now include additive,
+  machine-readable option/policy metadata while preserving all prior fields.
+- Docs: README/CLAUDE/CHANGELOG aligned with current engines and flags.
 
 ## Recent Changes (2026-07-08 — enhancement batch)
 - Resilience: stdlib HTTP retry/backoff (`UrllibHttpClient`, env
@@ -44,8 +58,8 @@ cache.
   Externalized `MINIMAX_URL`, `ZAI_SEARCH_URL`, `ZAI_READER_URL` to env.
   Legacy SCREAMING_CASE names readable via `__getattr__` proxy for BC.
 - Introduced `HttpClient` Protocol + `UrllibHttpClient` default impl.
-  Backends resolve `default_client()` at call time → future swap to
-  `httpx` is `set_default_client(HttpxClient())`, zero backend edits.
+  Backends resolve `default_client()` at call time → a future `httpx` swap
+  changes the module singleton assignment, with zero backend edits.
 - Cache entries stamped with `SCHEMA_VERSION` + optional `engine_tag`.
   Bumping model or prompt auto-invalidates stale entries without code.
 - Added CI gates: `ruff format --check` + `mypy src/` + `--cov --cov-fail-under=85`.
