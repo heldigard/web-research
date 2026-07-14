@@ -52,9 +52,8 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # Default-model notes are kept inline (not broken out into separate constants)
 # because they document a single-bench decision recorded in MEMORY.md.
 _OLLAMA_DEFAULT_MODEL = "cryptidbleh/gemma4-claude-opus-4.6:latest"
-_OLLAMA_DEFAULT_SYNTH_MODEL = (
-    "hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M"  # web_synth combined #1, 2026-07-08 PM bench
-)
+_OLLAMA_DEFAULT_SYNTH_MODEL = "hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M"  # web_synth combined #1, 2026-07-09 validation
+_OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL = "xentriom/gemma-4-12B-agentic-fable5-composer2.5-v2:Q8_0"  # web_synth FALLBACK (12GB VRAM); for VRAM-tight hosts set OLLAMA_SYNTH_FALLBACK_MODEL=cryptidbleh/gemma4-claude-opus-4.6:latest
 _OLLAMA_DEFAULT_EMBED = "embeddinggemma"  # MRR 0.724 eval winner
 _WEB_SYNTH_DEFAULT_CLOUD = "deepseek/deepseek-v4-flash"
 
@@ -78,6 +77,7 @@ class Settings:
     # Ollama model assignments
     ollama_model: str = _OLLAMA_DEFAULT_MODEL
     ollama_synth_model: str = _OLLAMA_DEFAULT_SYNTH_MODEL
+    ollama_synth_fallback_model: str = _OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL
     ollama_embed: str = _OLLAMA_DEFAULT_EMBED
 
     # Direct API integrations — endpoints externalized so proxies / on-prem
@@ -131,6 +131,9 @@ def load_settings() -> Settings:
         ollama_url=_env_str("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
         ollama_model=_env_str("OLLAMA_MODEL", _OLLAMA_DEFAULT_MODEL),
         ollama_synth_model=_env_str("OLLAMA_SYNTH_MODEL", _OLLAMA_DEFAULT_SYNTH_MODEL),
+        ollama_synth_fallback_model=_env_str(
+            "OLLAMA_SYNTH_FALLBACK_MODEL", _OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL
+        ),
         ollama_embed=_env_str("OLLAMA_EMBED", _OLLAMA_DEFAULT_EMBED),
         minimax_api_key=_env_str("MINIMAX_API_KEY", ""),
         minimax_url=_env_str("MINIMAX_URL", Settings.minimax_url).rstrip("/"),
@@ -207,6 +210,7 @@ _LEGACY_NAME_MAP: dict[str, str] = {
     "OLLAMA_URL": "ollama_url",
     "OLLAMA_MODEL": "ollama_model",
     "OLLAMA_SYNTH_MODEL": "ollama_synth_model",
+    "OLLAMA_SYNTH_FALLBACK_MODEL": "ollama_synth_fallback_model",
     "OLLAMA_EMBED": "ollama_embed",
     "MINIMAX_API_KEY": "minimax_api_key",
     "ZAI_API_KEY": "zai_api_key",
@@ -241,6 +245,7 @@ if TYPE_CHECKING:
     OLLAMA_URL: str
     OLLAMA_MODEL: str
     OLLAMA_SYNTH_MODEL: str
+    OLLAMA_SYNTH_FALLBACK_MODEL: str
     OLLAMA_EMBED: str
     MINIMAX_API_KEY: str
     ZAI_API_KEY: str

@@ -10,17 +10,19 @@ from web_research.shared.config import (
     OLLAMA_SYNTH_MODEL,
     WEB_SYNTH_CLOUD_MODEL,
     WEB_SYNTH_MAX_CONTEXT_CHARS,
+    get_settings,
 )
 from web_research.shared.http import _warn
 from web_research.shared.json_utils import extract_json_object as _extract_json_object
 from web_research.shared.ollama_api import generate
 
 
-def _synthesize_local(prompt: str, system: str) -> str | None:
-    # Final cited answer → use the synthesis-tuned model (OLLAMA_SYNTH_MODEL =
-    # TeichAI/Fable-5-v1, web_synth combined #1 in the 2026-07-08 PM
-    # canonical refactor bench), not the universal cryptidbleh/gemma4-claude-opus-4.6 anchor.
-    return generate(prompt, system=system, temperature=0.2, model=OLLAMA_SYNTH_MODEL)
+def _synthesize_local(prompt: str, system: str, model: str | None = None) -> str | None:
+    # Final cited answer: PRIMARY is the synthesis-tuned model (TeichAI/Fable-5-v1,
+    # web_synth combined #1 per ~/ollama-bench/RANKING.md 2026-07-09 validation).
+    # `model` overrides the default PRIMARY so synthesize() can chain PRIMARY →
+    # FALLBACK without re-importing the constants here.
+    return generate(prompt, system=system, temperature=0.2, model=model or OLLAMA_SYNTH_MODEL)
 
 
 _STRUCTURED_SCHEMA = [
@@ -107,14 +109,29 @@ def synthesize(
 
     prompt = f"QUERY: {query}\n\nSOURCES:\n{context}\n\n{style}"
 
-    # Cloud backend is mode-aware (prose → require_json=False; structured →
-    # JSON schema + render). partial binds `structured` so both backends share
-    # the (prompt, system) call signature.
-    cloud_fn = partial(_synthesize_cloud, structured=structured)
-    for fn, label in ((_synthesize_local, "ollama"), (cloud_fn, "cloud")):
+    # Synthesis backend chain: local Ollama (PRIMARY → FALLBACK) → cloud.
+    # PRIMARY (TeichAI/Fable-5-v1) is the web_synth champion; FALLBACK
+    # (xentriom/gemma-4-12B-agentic-fable5-composer2.5-v2:Q8_0, 12GB VRAM)
+    # covers VRAM-contention / 4xx / model-not-loaded cases so callers still
+    # get a local synthesis instead of a cloud round-trip. Cloud (deepseek-v4-
+    # flash) is the last resort when both Ollama tiers fail or the daemon is
+    # down — keeps the API fail-open for agent loops that need a cited answer.
+    settings = get_settings()
+    local_attempts: list[tuple[str, str]] = [
+        (settings.ollama_synth_model, "ollama"),
+    ]
+    fb = settings.ollama_synth_fallback_model
+    if fb and fb != settings.ollama_synth_model:
+        local_attempts.append((fb, "ollama-fallback"))
+    for model, label in local_attempts:
+        fn = partial(_synthesize_local, model=model)
         answer = _try_synthesize(fn, label, prompt, base_system)
         if answer:
             return _format_answer(answer, structured)
+    cloud_fn = partial(_synthesize_cloud, structured=structured)
+    answer = _try_synthesize(cloud_fn, "cloud", prompt, base_system)
+    if answer:
+        return _format_answer(answer, structured)
     return None
 
 

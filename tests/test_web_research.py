@@ -535,6 +535,72 @@ class SynthesisTests(unittest.TestCase):
         self.assertLessEqual(len(out), 300)
         self.assertIn("[content truncated]", out)
 
+    # ---------------------------------------------------------------
+    # 2026-07-09 wiring regression: PRIMARY (TeichAI/Fable-5-v1) +
+    # FALLBACK (xentriom/Q8_0) must match ~/ollama-bench/RANKING.md.
+    # Earlier audit found FALLBACK slot entirely absent.
+    # ---------------------------------------------------------------
+    def test_synth_model_wiring_matches_ranking(self):
+        from web_research.shared.config import (
+            _OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL,
+            _OLLAMA_DEFAULT_SYNTH_MODEL,
+            OLLAMA_SYNTH_FALLBACK_MODEL,
+            OLLAMA_SYNTH_MODEL,
+            load_settings,
+        )
+
+        # PRIMARY per RANKING.md web_synth #1 (validated 2026-07-09)
+        self.assertEqual(
+            _OLLAMA_DEFAULT_SYNTH_MODEL,
+            "hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M",
+            "web_synth PRIMARY drifted from RANKING.md",
+        )
+        # FALLBACK per RANKING.md web_synth #2
+        self.assertEqual(
+            _OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL,
+            "xentriom/gemma-4-12B-agentic-fable5-composer2.5-v2:Q8_0",
+            "web_synth FALLBACK drifted from RANKING.md (or is missing)",
+        )
+        # Legacy SCREAMING_CASE proxy resolves the modern settings field
+        # (PRIMARY + FALLBACK must be distinct)
+        self.assertNotEqual(OLLAMA_SYNTH_FALLBACK_MODEL, OLLAMA_SYNTH_MODEL)
+        self.assertEqual(OLLAMA_SYNTH_FALLBACK_MODEL, _OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL)
+        self.assertEqual(OLLAMA_SYNTH_MODEL, _OLLAMA_DEFAULT_SYNTH_MODEL)
+        # Load with no env override — defaults apply
+        s = load_settings()
+        self.assertEqual(s.ollama_synth_model, _OLLAMA_DEFAULT_SYNTH_MODEL)
+        self.assertEqual(s.ollama_synth_fallback_model, _OLLAMA_DEFAULT_SYNTH_FALLBACK_MODEL)
+        # Env override flows through
+        with patch.dict(os.environ, {"OLLAMA_SYNTH_FALLBACK_MODEL": "tiny:1b"}):
+            s2 = load_settings()
+        self.assertEqual(s2.ollama_synth_fallback_model, "tiny:1b")
+
+    @patch("ollama_client.generate")
+    @patch("ollama_client.is_alive")
+    def test_synthesize_falls_back_to_local_fallback(self, mock_alive, mock_gen):
+        """If PRIMARY returns empty/None, synthesize() must try the FALLBACK
+        model before giving up to cloud. Pins the chain order to RANKING.md."""
+        mock_alive.return_value = True
+        # First call (PRIMARY) returns empty; second call (FALLBACK) returns text.
+        mock_gen.side_effect = ["", "Fallback answer."]
+        from web_research.shared.config import get_settings, load_settings
+
+        load_settings()  # reset module singleton with current defaults
+        s = get_settings()
+        # sanity: fallback is wired and distinct from primary
+        self.assertNotEqual(s.ollama_synth_model, s.ollama_synth_fallback_model)
+        docs = [{"title": "D", "url": "https://d", "text": "body"}]
+        out = wr.synthesize("q", docs)
+        self.assertEqual(out, "Fallback answer.")
+        # Both PRIMARY + FALLBACK must have been called (chain length ≥ 2).
+        self.assertGreaterEqual(mock_gen.call_count, 2, "PRIMARY → FALLBACK chain skipped")
+        # The second call must use the FALLBACK model.
+        fallback_call = mock_gen.call_args_list[1]
+        called_model = fallback_call.kwargs.get("model") or fallback_call.args[0]
+        self.assertIn(
+            "xentriom", called_model, f"FALLBACK slot called wrong model: {called_model!r}"
+        )
+
 
 class CacheTests(unittest.TestCase):
     """P2: cache roundtrip."""
