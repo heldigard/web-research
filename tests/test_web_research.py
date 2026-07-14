@@ -507,6 +507,40 @@ class SynthesisTests(unittest.TestCase):
         out = wr.synthesize("q", docs)
         self.assertEqual(out, "Cloud answer.")
 
+    @patch("ollama_client.generate")
+    @patch("ollama_client.is_alive")
+    def test_synthesize_caches_result(self, mock_alive, mock_gen):
+        """A second identical synthesis is served from cache (no Ollama call)."""
+        mock_alive.return_value = True
+        mock_gen.return_value = "Cached answer."
+        docs = [{"title": "D", "url": "https://d", "text": "body"}]
+        first = wr.synthesize("cache-q", docs)
+        second = wr.synthesize("cache-q", docs)
+        self.assertEqual(first, "Cached answer.")
+        self.assertEqual(second, "Cached answer.")
+        self.assertEqual(mock_gen.call_count, 1, "second call should hit cache, not Ollama")
+
+    @patch("ollama_client.generate")
+    @patch("ollama_client.is_alive")
+    def test_synthesize_no_cache_bypasses(self, mock_alive, mock_gen):
+        """no_cache=True skips both read and write."""
+        mock_alive.return_value = True
+        mock_gen.return_value = "Fresh answer."
+        docs = [{"title": "D", "url": "https://d", "text": "body"}]
+        wr.synthesize("nc-q", docs, no_cache=True)
+        wr.synthesize("nc-q", docs, no_cache=True)
+        self.assertEqual(mock_gen.call_count, 2, "no_cache must not serve cached result")
+
+    @patch("ollama_client.generate")
+    @patch("ollama_client.is_alive")
+    def test_synthesize_cache_invalidates_on_doc_change(self, mock_alive, mock_gen):
+        """A different source set (same URL, new content) must miss."""
+        mock_alive.return_value = True
+        mock_gen.return_value = "Answer."
+        wr.synthesize("q", [{"title": "D", "url": "https://d", "text": "body-one"}])
+        wr.synthesize("q", [{"title": "D", "url": "https://d", "text": "body-two"}])
+        self.assertEqual(mock_gen.call_count, 2, "changed source content must bypass cache")
+
     def test_render_structured_parses_json(self):
         from web_research.features.synthesis.engine import _render_structured
 
@@ -1260,6 +1294,55 @@ class BackendSliceTests(unittest.TestCase):
             assert cache.get("probe", {"k": 1}, engine_tag="t1") is None
         finally:
             cache.SCHEMA_VERSION = original  # type: ignore[attr-defined]
+
+
+class ResearchScrapeCacheTests(unittest.TestCase):
+    """``_scrape_cached`` caches research's most expensive phase (scrape)."""
+
+    def setUp(self) -> None:
+        _clear_cache()
+
+    @patch("web_research.features.research.command.scrape_with_fallback")
+    def test_second_call_hits_cache(self, mock_scrape):
+        from web_research.features.research.command import _scrape_cached
+
+        mock_scrape.return_value = "evidence markdown"
+        first = _scrape_cached("https://x.test/a", respect_robots=False, no_cache=False)
+        second = _scrape_cached("https://x.test/a", respect_robots=False, no_cache=False)
+        self.assertEqual(first, "evidence markdown")
+        self.assertEqual(second, "evidence markdown")  # served from cache
+        self.assertEqual(mock_scrape.call_count, 1)  # only the miss hit the network
+
+    @patch("web_research.features.research.command.scrape_with_fallback")
+    def test_no_cache_bypasses_read_and_write(self, mock_scrape):
+        from web_research.features.research.command import _scrape_cached
+
+        mock_scrape.return_value = "evidence markdown"
+        _scrape_cached("https://x.test/b", respect_robots=False, no_cache=True)
+        _scrape_cached("https://x.test/b", respect_robots=False, no_cache=True)
+        self.assertEqual(mock_scrape.call_count, 2)  # no caching at all
+
+    @patch("web_research.features.research.command.scrape_with_fallback")
+    def test_empty_result_not_cached(self, mock_scrape):
+        from web_research.features.research.command import _scrape_cached
+
+        mock_scrape.return_value = ""
+        _scrape_cached("https://x.test/c", respect_robots=False, no_cache=False)
+        _scrape_cached("https://x.test/c", respect_robots=False, no_cache=False)
+        self.assertEqual(mock_scrape.call_count, 2)  # empty not cached -> retried
+
+    @patch("web_research.features.research.command.scrape_with_fallback")
+    def test_cache_separates_robots_policy(self, mock_scrape):
+        from web_research.features.research.command import _scrape_cached
+
+        mock_scrape.side_effect = lambda url, respect_robots=False: (
+            "robots-enforced" if respect_robots else "robots-bypassed"
+        )
+        enforced = _scrape_cached("https://x.test/d", respect_robots=True, no_cache=False)
+        bypassed = _scrape_cached("https://x.test/d", respect_robots=False, no_cache=False)
+        self.assertEqual(enforced, "robots-enforced")
+        self.assertEqual(bypassed, "robots-bypassed")
+        self.assertEqual(mock_scrape.call_count, 2)  # distinct cache keys
 
 
 if __name__ == "__main__":

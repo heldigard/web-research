@@ -22,6 +22,7 @@ from web_research.features.synthesis.engine import synthesize
 from web_research.shared.cache import get as cache_get
 from web_research.shared.cache import set as cache_set
 from web_research.shared.cli_helpers import apply_common
+from web_research.shared.config import SCHEMA_VERSION
 from web_research.shared.formatters import fmt_results
 from web_research.shared.http import _debug
 from web_research.shared.ollama_api import is_alive
@@ -42,6 +43,26 @@ def _search_phase(
     if results and not args.no_cache:
         cache_set("research", cache_params, {"results": results})
     return results, False
+
+
+def _scrape_cached(url: str, *, respect_robots: bool, no_cache: bool) -> str:
+    """Scrape one URL with on-disk caching (mirrors the ``read`` command).
+
+    Cache prefix ``scrape`` is keyed on ``url`` + ``respect_robots`` so a
+    re-run of the same research hits the cache instead of re-scraping — the
+    scrape phase is the most expensive step (Firecrawl JS render, paid Z.AI
+    reader API). Empty results are not cached: a failed fetch may simply be
+    a transient outage, and re-running should retry.
+    """
+    cache_params = {"url": url, "respect_robots": respect_robots}
+    cached = None if no_cache else cache_get("scrape", cache_params)
+    if cached:
+        _debug("cache", f"scrape hit {url}")
+        return cast(str, cached["markdown"])
+    md = scrape_with_fallback(url, respect_robots=respect_robots)
+    if md and not no_cache:
+        cache_set("scrape", cache_params, {"markdown": md})
+    return md
 
 
 def _build_docs(
@@ -95,7 +116,7 @@ def mode_research(args: argparse.Namespace) -> int:
             print(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": SCHEMA_VERSION,
                         "status": "no_results",
                         "query": args.query,
                         "generated_at": datetime.now(UTC).isoformat(),
@@ -118,7 +139,11 @@ def mode_research(args: argparse.Namespace) -> int:
     k = min(args.scrape, len(results))
     top = results[:k]
     urls = [r["url"] for r in top]
-    fetch = partial(scrape_with_fallback, respect_robots=not getattr(args, "no_robots", False))
+    fetch = partial(
+        _scrape_cached,
+        respect_robots=not getattr(args, "no_robots", False),
+        no_cache=args.no_cache,
+    )
     with ThreadPoolExecutor(max_workers=min(k, 4) or 1) as ex:
         mds = list(ex.map(fetch, urls))
 
@@ -127,7 +152,13 @@ def mode_research(args: argparse.Namespace) -> int:
     source_names = ", ".join(dict.fromkeys(r.get("source", "searxng") for r in top))
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     answer = (
-        synthesize(args.query, docs, answer_mode=args.answer, structured=args.smart)
+        synthesize(
+            args.query,
+            docs,
+            answer_mode=args.answer,
+            structured=args.smart,
+            no_cache=args.no_cache,
+        )
         if docs
         else None
     )

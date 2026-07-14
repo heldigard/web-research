@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from functools import partial
 
+from web_research.shared.cache import get as cache_get
+from web_research.shared.cache import set as cache_set
 from web_research.shared.compat import cheap_complete
 from web_research.shared.config import (
     OLLAMA_SYNTH_MODEL,
     WEB_SYNTH_CLOUD_MODEL,
     WEB_SYNTH_MAX_CONTEXT_CHARS,
+    Settings,
     get_settings,
 )
 from web_research.shared.http import _warn
@@ -48,6 +52,7 @@ def _synthesize_cloud(prompt: str, system: str, structured: bool = False) -> str
             timeout_total=30.0,
             require_json=structured,
             cloud_model=WEB_SYNTH_CLOUD_MODEL,
+            max_output_tokens=2048,  # cited synthesis can exceed the 1024 default
         )
         return (out.get("text") or "").strip() or None
     except Exception as e:  # noqa: BLE001
@@ -55,16 +60,49 @@ def _synthesize_cloud(prompt: str, system: str, structured: bool = False) -> str
         return None
 
 
+def _synth_cache_params(
+    query: str, docs: list[dict], answer_mode: bool, structured: bool, max_ctx: int
+) -> dict:
+    """Deterministic cache key for a synthesis result.
+
+    Captures every input that changes the output: query, the source set
+    (URLs + a content fingerprint so an updated page invalidates even at the
+    same URL), the two rendering modes, and the context-truncation budget
+    (``WEB_SYNTH_MAX_CONTEXT_CHARS`` — a wider budget yields a different
+    answer from the same sources, so it must invalidate). The model is stamped
+    via ``engine_tag`` at the call site (a model bump forces a miss without a
+    full schema bump — see ``shared/cache.py``).
+    """
+    material = sorted(
+        (str(d.get("url", "")), (d.get("extracted") or d.get("text", ""))[:2000]) for d in docs
+    )
+    docs_hash = hashlib.sha256(
+        "\n".join(f"{url}\n{txt}" for url, txt in material).encode("utf-8")
+    ).hexdigest()[:16]
+    return {
+        "q": query,
+        "docs_hash": docs_hash,
+        "n_docs": len(docs),
+        "answer_mode": answer_mode,
+        "structured": structured,
+        "max_ctx": max_ctx,
+    }
+
+
 def synthesize(
     query: str,
     docs: list[dict],
     answer_mode: bool = False,
     structured: bool = False,
+    no_cache: bool = False,
 ) -> str | None:
     """Generate cited synthesis using Ollama, falling back to cheap cloud LLM.
 
     If structured=True, attempts to return a JSON object that is then rendered
-    as clean markdown.
+    as clean markdown. Results are cached on disk (prefix ``synth``) keyed on
+    query + source set + modes + synthesis model, so re-running the same
+    research returns the prior answer without re-invoking Ollama/cloud.
+    Pass ``no_cache=True`` to bypass.
     """
     ctx_parts = []
     remaining = WEB_SYNTH_MAX_CONTEXT_CHARS
@@ -117,6 +155,34 @@ def synthesize(
     # flash) is the last resort when both Ollama tiers fail or the daemon is
     # down — keeps the API fail-open for agent loops that need a cited answer.
     settings = get_settings()
+
+    # Cache lookup: same query + source set + modes + model returns the prior
+    # answer without re-running the chain. engine_tag = synth model so a model
+    # bump forces a re-synthesis even within the cache TTL.
+    cache_params = _synth_cache_params(
+        query, docs, answer_mode, structured, WEB_SYNTH_MAX_CONTEXT_CHARS
+    )
+    if not no_cache:
+        cached = cache_get("synth", cache_params, engine_tag=settings.ollama_synth_model)
+        if cached:
+            return cached["answer"]
+
+    result = _run_synth_chain(prompt, base_system, structured, settings)
+
+    if result and not no_cache:
+        cache_set("synth", cache_params, {"answer": result}, engine_tag=settings.ollama_synth_model)
+    return result
+
+
+def _run_synth_chain(
+    prompt: str, base_system: str, structured: bool, settings: Settings
+) -> str | None:
+    """Run the local→fallback→cloud backend chain, return the formatted answer.
+
+    Each backend's output is post-processed via :func:`_format_answer` so the
+    caller (and the cache) always stores the rendered form. The chain order is
+    documented at the call site (PRIMARY → FALLBACK → cloud).
+    """
     local_attempts: list[tuple[str, str]] = [
         (settings.ollama_synth_model, "ollama"),
     ]
@@ -130,9 +196,7 @@ def synthesize(
             return _format_answer(answer, structured)
     cloud_fn = partial(_synthesize_cloud, structured=structured)
     answer = _try_synthesize(cloud_fn, "cloud", prompt, base_system)
-    if answer:
-        return _format_answer(answer, structured)
-    return None
+    return _format_answer(answer, structured) if answer else None
 
 
 def _compact_source_text(text: str, max_chars: int) -> str:

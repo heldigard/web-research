@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from web_research._version import __version__
+from web_research.shared.config import SCHEMA_VERSION
 
 CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
@@ -113,7 +114,7 @@ def capabilities_payload() -> dict[str, Any]:
     """Return the stable tool-card envelope consumed by routers."""
     return {
         "command": "capabilities",
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "tool": "web-research",
         "version": __version__,
         "capabilities": [dict(item) for item in CAPABILITIES],
