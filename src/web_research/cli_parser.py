@@ -84,7 +84,7 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     pr.add_argument("query")
     pr.add_argument("-n", type=int, default=6, help="search results to pull")
     pr.add_argument("--scrape", type=int, default=3, help="how many to fully scrape")
-    pr.add_argument("--max-chars", type=int, default=4000, dest="max_chars")
+    pr.add_argument("--max-chars", type=int, default=12000, dest="max_chars")
     pr.add_argument(
         "--engine",
         default="searxng",

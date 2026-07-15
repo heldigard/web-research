@@ -77,7 +77,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
             "verbose": {"flag": "--verbose", "default": False},
             "count": {"flag": "-n", "type": "integer", "default": 6},
             "scrape": {"flag": "--scrape", "type": "integer", "default": 3},
-            "max_chars": {"flag": "--max-chars", "type": "integer", "default": 4000},
+            "max_chars": {"flag": "--max-chars", "type": "integer", "default": 12000},
             "engine": {"flag": "--engine", "default": "searxng"},
             "time": {"flag": "--time", "values": ("day", "week", "month", "year")},
             "answer": {"flag": "--answer", "default": False},

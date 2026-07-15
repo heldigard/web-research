@@ -150,7 +150,7 @@ def load_settings() -> Settings:
         cache_ttl_seconds=_env_int("WEB_RESEARCH_CACHE_TTL", 3600),
         cache_max_entries=_env_int("WEB_RESEARCH_CACHE_MAX_ENTRIES", Settings.cache_max_entries),
         cache_max_bytes=_env_int("WEB_RESEARCH_CACHE_MAX_BYTES", Settings.cache_max_bytes),
-        web_synth_max_context_chars=_env_int("WEB_SYNTH_MAX_CONTEXT_CHARS", 14000),
+        web_synth_max_context_chars=_env_int("WEB_SYNTH_MAX_CONTEXT_CHARS", 40000),
         # ECOSYSTEM_SCRIPTS must hold BOTH ollama_client.py and the cheap_llm.py
         # shim (~/.claude/scripts). Do NOT fall back to CHEAP_LLM_HOME — that
         # points at the cheap-llm PROJECT ROOT, which has cheap_llm.py but NOT
