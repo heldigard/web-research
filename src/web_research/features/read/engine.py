@@ -53,7 +53,10 @@ def read_with_fallback(
         debug("reader", f"robots.txt disallows {url}")
         return ""
     for eng in _fallback_chain(engine):
-        reader = build_reader(eng)
+        # Keep the historic ``wr.reader.ZAI_API_KEY`` override effective.
+        # The flat API exposed this module-level setting long before readers
+        # became backend classes, and tests/consumers still patch it at runtime.
+        reader = ZaiReader(api_key=ZAI_API_KEY) if eng == "zai" else build_reader(eng)
         if reader is None:
             continue
         debug("reader", f"trying {eng} for {url}")
@@ -86,7 +89,11 @@ def firecrawl_scrape(target_url: str, wait: int = 0, timeout: int = 45) -> str:
 
 def zai_reader(url: str, timeout: int = 20, return_format: str = "markdown") -> str:
     """Legacy entry point. Prefer ``ZaiReader().read(...)``."""
-    return ZaiReader().read(url, timeout=timeout, return_format=return_format)
+    return ZaiReader(api_key=ZAI_API_KEY).read(
+        url,
+        timeout=timeout,
+        return_format=return_format,
+    )
 
 
 # Module-level config proxy for legacy ``from .engine import ZAI_API_KEY``.

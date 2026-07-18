@@ -13,6 +13,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+# Hermetic: the host shell may export SEARXNG_URL/FC_URL/OLLAMA_URL (e.g.
+# 127.0.0.1 loopback binds); tests mock the canonical localhost URLs, so the
+# ambient env must not leak into the settings singleton before import.
+for _env in ("SEARXNG_URL", "FC_URL", "OLLAMA_URL"):
+    os.environ.pop(_env, None)
+
 import web_research as wr  # noqa: E402
 import web_research.shared.config as _config  # noqa: E402
 from web_research.cli_parser import build_parser  # noqa: E402
