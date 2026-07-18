@@ -56,14 +56,21 @@ def read_with_fallback(
         # Keep the historic ``wr.reader.ZAI_API_KEY`` override effective.
         # The flat API exposed this module-level setting long before readers
         # became backend classes, and tests/consumers still patch it at runtime.
-        reader = ZaiReader(api_key=ZAI_API_KEY) if eng == "zai" else build_reader(eng)
-        if reader is None:
+        if eng == "zai":
+            zai_backend = ZaiReader(api_key=ZAI_API_KEY)
+            debug("reader", f"trying {eng} for {url}")
+            md = zai_backend.read(url, timeout=zai_timeout)
+            if md:
+                return md
+            continue
+        backend = build_reader(eng)
+        if backend is None:
             continue
         debug("reader", f"trying {eng} for {url}")
         md = (
-            reader.read(url, wait=wait, timeout=zai_timeout)
+            backend.read(url, wait=wait, timeout=zai_timeout)
             if eng == "firecrawl"
-            else reader.read(url, timeout=zai_timeout)
+            else backend.read(url, timeout=zai_timeout)
         )
         if md:
             return md
