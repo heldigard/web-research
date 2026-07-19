@@ -78,6 +78,17 @@ web-research status
 
 Common flags: `--no-cache`, `--timeout N`, `--verbose`.
 
+### Controller resilience (automatic)
+
+- **Empty primary engine** → free→paid cascade (`searxng` ↔ `duckduckgo` →
+  minimax/zai if keys); `search` exits `1` when still empty.
+- **News / product windows** → recency-aware rerank (URL publish dates),
+  near-dup keeps the newer article, scrape pool forces freshest hit;
+  structured synthesis builds timelines when deadlines conflict.
+- **Scrape failures** → window slides past dead top-K URLs until enough
+  pages succeed or results are exhausted.
+- **`--smart` facts** → lexical citation grounding demotes ungrounded claims.
+
 ## Configuration
 
 The on-disk JSON cache defaults to `~/.cache/web-research/`. Configure it with:

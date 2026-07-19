@@ -63,6 +63,10 @@ web-research capabilities  # machine-readable router contract; no network probes
 Common: --no-cache --timeout N --verbose
 ```
 
+Controller resilience (automatic, no flags): empty primary engine escalates
+free→paid; top-K scrape failures slide to later hits; structured synthesis
+grounds claims against cited source text (`--smart`).
+
 ## Conventions
 
 - Vertical slices in `src/web_research/features/<feature>/`; shared infra in

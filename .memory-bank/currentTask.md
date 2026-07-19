@@ -1,15 +1,16 @@
 # Current Task
-> Updated: 2026-07-18
+> Updated: 2026-07-19
 
 ## Goal
-None active.
+None active — controller quality + recency batch ready to ship.
 
 ## Last completed
-Ubuntu-native correctness + ops pass: `status` subcommand, DDG anti-challenge
-headers, paid-only SearXNG fallback, CLI status hint, docs/memory hygiene.
-**144 tests** green; live DDG + stack smoke OK.
+- Engine cascade, grounding, scrape recovery, ES profiles
+- Recency ranking + news profile + sticky needs_recency
+- Live smoke Fable 5 → July 19 extension correct
+- Memory hygiene; commits + push pending controller
 
 ## Next likely work
-- Shared model registry (proposals P2) if cross-repo model drift hurts again
-- Live re-bench when `OLLAMA_SYNTH_MODEL` / `OLLAMA_EMBED` change
-- Optional: TEI rerank smoke; retrieval eval suite
+- P2 shared model registry if model drift hurts
+- Retrieval eval harness
+- Optional multi-hop news follow-up

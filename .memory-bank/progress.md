@@ -39,3 +39,6 @@
 ## 2026-07-04 — Graduation
 - Extracted from `~/.claude/scripts/web_research/` → `~/web-research/`.
 - Vertical slices + per-mode `command.py`; public GitHub repo; shim wired.
+- 2026-07-19T01:41:31Z | status:completed | session:gen:ac1eab60-6b6b-4475-9d73-c192e656c771 | claude: Shared model registry (proposals P2) if cross-repo model drift hurts again
+- 2026-07-19T16:26:15Z | 2026-07-19: Controller quality SHIPPED — search_with_escalation free→paid cascade; ground_structured_facts for --smart synthesis; scrape window recovery; ES+whole-word query profiles; search exit 1 on empty; research pipeline JSON; ~156 tests green.
+- 2026-07-19T16:43:42Z | 2026-07-19: Recency fix SHIPPED — Fable-5 class failure (old July 7/12 headline beat July 19 update). parse_result_date+recency_weight+near-dup prefers newer+scrape diversity+sticky needs_recency+time_range month. Live smoke: research --smart cites July 19. Full controller-quality batch (cascade/grounding/scrape recovery) same session.

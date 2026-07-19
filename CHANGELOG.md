@@ -4,7 +4,53 @@ All notable changes to `web-research` are documented here. The project stays
 **zero-dependency, local-first** (stdlib only) — every enhancement below honors
 that constraint.
 
-## [Unreleased] — 2026-07-18
+## [Unreleased] — 2026-07-19
+
+### Recency / news correctness (2026-07-19)
+
+- **Root cause of "missed July 19 extension"** (Fable 5 case): ranking used only
+  semantic sim + domain quality; near-dup collapse kept the older headline;
+  query `Fable 5 Anthropic` was classified evergreen; DDG leaves
+  `publishedDate` empty so freshness was invisible.
+- **Publish-date parse** from `publishedDate`, URL `/YYYY/MM/DD/`, title ISO
+  (snippets ignored — they hold event deadlines, not publish days).
+- **Recency mix-in** in `rerank_results` (`recency_weight` ~0.12 general,
+  ~0.28 news); near-duplicates **prefer the newer** dated article.
+- **Scrape diversity** for news: force-include freshest hit in top-K pool.
+- **Product-news profile** — vendor + version/codename (`Fable 5 Anthropic`)
+  and availability words (`extends`, `until`, `deadline`, …) set
+  `needs_recency`.
+- **Synthesis timeline rule** — conflicting dates/deadlines → explicit
+  timeline; most recent dated source wins unless official primary contradicts.
+- **Second-pass hardening**:
+  - research auto `time_range` for recency is **month** (not week) so announce→extend chains stay visible
+  - rule-based `needs_recency` / `intent=news` is **sticky** against casual LLM downgrades
+  - product-news heuristic narrowed (no bare `google 3` FPs); title month-day without year is not treated as publish date
+  - smart formatter shows `_pub_date` / `publishedDate` when known
+  - live smoke: `research --smart "Fable 5 Anthropic extends"` cites **July 19** (not July 12)
+
+### Controller quality (2026-07-19)
+
+- **Empty-engine cascade** — `search` / `research` auto-escalate when the
+  primary engine returns zero hits: free first (`searxng` ↔ `duckduckgo`),
+  then paid engines with configured keys (`minimax`, `zai`). Matches the
+  skill docs that already promised this. Human output notes the escalation;
+  `research --json` exposes it under `pipeline.search`.
+- **Search empty exit code** — `search` returns exit `1` when all engines
+  in the cascade produce zero hits (controllers can branch without parsing
+  markdown).
+- **Citation grounding** — structured synthesis (`research --smart`,
+  `search --smart --summary`) demotes facts whose claims lack lexical
+  support in the cited source body to `confidence=low` and flags them
+  `⚠ ungrounded`. Prevents local models from inventing citable claims.
+- **Scrape recovery** — if the top-K scrape batch fails, the window slides
+  to later ranked results until K pages succeed or the hit list is
+  exhausted (no second full research call).
+- **Query intelligence** — Spanish intent triggers (falló/comparar/noticias/…);
+  whole-word matching so `"api"` no longer hijacks `"fastapi vs …"` as docs;
+  language-aware preferred docs sites (Python/MDN/Rust/Go/Java).
+- **Stricter synthesis prompts** — forbid invented versions/URLs/dates;
+  require fact↔source support; prefer decision-ready answer style for agents.
 
 ### Ubuntu-native correctness (2026-07-18)
 

@@ -1,5 +1,5 @@
 # CONTEXT - Current State
-> Updated: 2026-07-18 (Ubuntu-native DDG + status SHIPPED, memory hygiene)
+> Updated: 2026-07-19 (controller quality + recency SHIPPED)
 
 ## What this is
 Local-first web research engine for LLM agents. Graduated 2026-07-04 from
@@ -7,31 +7,38 @@ Local-first web research engine for LLM agents. Graduated 2026-07-04 from
 Public: https://github.com/heldigard/web-research
 
 ## Active Focus
-**Idle.** Latest ship (2026-07-18, this session):
+**Idle.** Shipped 2026-07-19 (this session):
 
-1. **`web-research status`** — probes SearXNG/Firecrawl/Ollama, model
-   cross-check, keys/cache/cloud; exit ≠0 if a service is down.
-2. **DDG correctness** — Accept/Accept-Language/Referer avoids anomaly
-   captcha; challenge HTML → stderr warn + empty list.
-3. **Search fallback** — SearXNG free-breadth merge only for paid engines
-   (`minimax`, `zai`). `--engine duckduckgo` no longer silently returns
-   searxng-labeled hits.
-4. CLI network hint → `web-research status` (not `docker ps`).
+### Controller quality
+1. Empty-engine cascade free→paid (`search_with_escalation`)
+2. Citation grounding on structured synthesis
+3. Scrape window recovery past failed top-K
+4. ES/whole-word query profiles; search exit 1 on empty
+5. `research --json` pipeline diagnostics
 
-**Suite: 144 tests**, ruff/pyright clean. Live stack OK on Ubuntu native.
+### Recency / news (Fable-5 class failure)
+1. Publish-date parse (field / URL `/YYYY/MM/DD/` / ISO title)
+2. Recency weight in rerank; near-dup prefers newer
+3. Scrape diversity for news; product-news profile
+4. Sticky heuristic recency vs LLM; auto time_range=month
+5. Synthesis timeline rules for conflicting deadlines
+6. Live smoke: research finds July 19 Fable 5 extension (not July 12)
+
+**Suite: ~168 tests**, ruff clean. Live stack OK.
 
 ## Architecture (stable)
 - Vertical slices: `features/{search,read,research,ranking,intelligence,synthesis,status}/`
 - Shared: `Settings` + `HttpClient` Protocol + schema-versioned disk cache
 - Optional ecosystem: `WEB_RESEARCH_SCRIPTS` → `ollama_client` + `cheap_llm` shims
-- Details: `ARCHITECTURE.md`, `topics/code-architecture.md`, `systemPatterns.md`
 
 ## Key decisions
-- Zero runtime deps (stdlib only). No asyncio / diskcache / trafilatura.
-- `cheap_llm` + `ollama_client` graduated sibling projects; loaded via shims.
-- Cache schema bump invalidates on-disk entries; `engine_tag` for model swaps.
+- Zero runtime deps (stdlib only)
+- Escalation free-first to protect paid quota
+- Snippet body not used for publish date (event deadlines confuse recency)
+- Month not week for auto recency filter (announce→extend chains)
 
-## Next (optional, not in flight)
-- Shared model registry across harness projects (`docs/proposals.md` P2)
-- Retrieval-quality eval suite (MRR 0.724 baseline is manual)
-- Optional `httpx` HttpClient behind a flag
+## Next (optional)
+- Shared model registry (proposals P2)
+- Retrieval eval suite (MRR 0.724 baseline manual)
+- Optional multi-hop follow-up search from `recommended_next_search`
+- Semantic claim grounding (embed claim↔source) beyond lexical
