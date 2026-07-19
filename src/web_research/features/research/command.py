@@ -230,7 +230,7 @@ def _print_json_research(
             }
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "status": "ok" if answer else "partial",
         "query": args.query,
         "generated_at": datetime.now(UTC).isoformat(),

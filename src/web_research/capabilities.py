@@ -107,6 +107,24 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
             "json": {"flag": "--json", "default": False, "structured_output": True},
         },
     },
+    {
+        "name": "status",
+        "purpose": "Probe local SearXNG/Firecrawl/Ollama and report service, "
+        "model, key, cache, and cloud-fallback health.",
+        "read_only": True,
+        "destructive": False,
+        "idempotent": True,
+        "open_world": False,
+        "structured_json": True,
+        "engines": tuple(),
+        "cost": "cheap",
+        "options": {
+            "cache": {"flag": "--no-cache", "default": False, "effect": "bypass_disk_cache"},
+            "timeout": {"flag": "--timeout", "type": "integer", "unit": "seconds"},
+            "verbose": {"flag": "--verbose", "default": False},
+            "json": {"flag": "--json", "default": False, "structured_output": True},
+        },
+    },
 )
 
 

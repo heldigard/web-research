@@ -23,10 +23,14 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     """Construct the top-level parser.
 
     Args:
-        handlers: maps subcommand name (search/research/read/capabilities) to its
-            mode function. Injected by the caller so this module does not
+        handlers: maps subcommand name (search/research/read/status/capabilities)
+            to its mode function. Injected by the caller so this module does not
             import the modes (no cycle).
     """
+    # vs-soft-allow  — one cohesive argparse builder. The depth is a flat
+    # sequence of subparser declarations (common flags + one block per
+    # subcommand); splitting would scatter a single declarative concern across
+    # files and make the CLI surface harder to read in one pass.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--no-cache", action="store_true", help="bypass disk cache")
     common.add_argument("--timeout", type=int, help="HTTP timeout (sec); default 30")
@@ -48,6 +52,18 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
         help="accepted for uniform router invocation; output is always JSON",
     )
     capabilities.set_defaults(func=handlers["capabilities"])
+
+    status = sub.add_parser(
+        "status",
+        parents=[common],
+        help="probe local SearXNG/Firecrawl/Ollama + report models, keys, cache.",
+    )
+    status.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the status envelope as JSON instead of a human report.",
+    )
+    status.set_defaults(func=handlers["status"])
 
     ps = sub.add_parser(
         "search", parents=[common], help="SearXNG search -> clean markdown results."

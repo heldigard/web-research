@@ -10,6 +10,7 @@ from web_research.cli_parser import build_parser
 from web_research.features.read.command import mode_read
 from web_research.features.research.command import mode_research
 from web_research.features.search.command import mode_search
+from web_research.features.status.command import mode_status
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -19,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
             "search": mode_search,
             "research": mode_research,
             "read": mode_read,
+            "status": mode_status,
             "capabilities": mode_capabilities,
         }
     )

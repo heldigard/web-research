@@ -1,5 +1,25 @@
 # CONTEXT - Current State
-> Updated: 2026-07-12 (cache + CLI resilience audit SHIPPED locally)
+> Updated: 2026-07-18 (status command + consistency fixes SHIPPED locally)
+
+## What this project is
+The `web_research` engine extracted from `~/.claude/scripts/web_research/`
+(flat 13-module package, 1302 LOC) into a standalone vertical-slice project at
+`~/web-research/`. Mirrors the `codeq` / `smart-trim` / `prompt-improve`
+graduation pattern.
+
+## Active Focus
+STATUS COMMAND + CONSISTENCY FIXES SHIPPED (2026-07-18): added the operational
+`web-research status` subcommand — the network-active complement to
+`capabilities`. It probes SearXNG/Firecrawl/Ollama in parallel (bounded 3 s
+timeout, injectable HttpClient), cross-checks the four configured Ollama models
+against `/api/tags` (tag-tolerant: bare name ⇒ `:latest`), and reports key /
+cache / cloud-fallback state; exits non-zero when a service is down so scripts
+can gate on it. Two consistency fixes shipped alongside: `schema_version`
+literal `1` → `SCHEMA_VERSION` constant in `research/command.py`, and the dead
+`web_synth_max_context_chars` dataclass default aligned 14000 → 40000 (matches
+`load_settings` since fce82d9). Suite now **139 tests**, 90% coverage, status
+module 96%; Ruff + Pyright clean, codescan all 0. Changes local/uncommitted on
+`main`.
 
 ## What this project is
 The `web_research` engine extracted from `~/.claude/scripts/web_research/`

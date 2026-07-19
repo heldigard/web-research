@@ -31,9 +31,28 @@ cd web-research
 uv sync            # or: pip install -e .[test]
 ```
 
-The local-first path uses SearXNG on `:8080`, Firecrawl on `:3002`, and Ollama
-on `:11434`. If Firecrawl and Z.AI are unavailable, reads fall back to a
-stdlib HTML extractor. Override service URLs with `SEARXNG_URL`, `FC_URL`, and
+## Local services (Ubuntu native)
+
+The local-first path uses three self-hosted services. Bring them up once and
+point the engine at them:
+
+```bash
+# SearXNG :8080 — meta-search (systemd or docker)
+# Firecrawl :3002 — JS-rendering reader
+# Ollama :11434 — local rerank + synthesis (GPU)
+web-research status        # verify all three are reachable + models installed
+```
+
+`web-research status` is the operational complement to `capabilities`: it
+actively probes the three services, cross-checks the configured Ollama models
+(`OLLAMA_MODEL`, `OLLAMA_SYNTH_MODEL`, `OLLAMA_SYNTH_FALLBACK_MODEL`,
+`OLLAMA_EMBED`) against the tags actually installed, and reports API-key,
+cache, and cloud-fallback state. Use it to diagnose "why did research fall
+back to cloud?" or "why was rerank skipped?" without curling each service.
+It exits non-zero when any service is down, so scripts can gate on it.
+
+If Firecrawl and Z.AI are unavailable, reads fall back to a stdlib HTML
+extractor. Override service URLs with `SEARXNG_URL`, `FC_URL`, and
 `OLLAMA_URL`.
 
 ## Usage
@@ -46,6 +65,7 @@ web-research research "what is claude code" -n 3 --scrape 2 --answer
 web-research research "latest API behavior" --smart --json
 web-research research "how rerank_results is used" --code-analyze
 web-research capabilities
+web-research status
 ```
 
 | Subcommand | Does |
@@ -53,6 +73,7 @@ web-research capabilities
 | `search` | SearXNG, DuckDuckGo, Z.AI, or MiniMax → clean markdown results; `--smart` adds profiling and `--summary` a structured answer |
 | `read` | One URL → markdown via Firecrawl, Z.AI, or the stdlib HTML reader; `--no-robots` explicitly bypasses the default robots gate |
 | `research` | Search → scrape top K → Ollama/cloud synthesis with `[n]` citations; `--json` returns evidence/provenance and `--code-analyze` can add local `codeq` context |
+| `status` | Probes SearXNG/Firecrawl/Ollama, cross-checks configured vs installed Ollama models, reports keys/cache/cloud-fallback; exits non-zero if a service is down |
 | `capabilities` | Compact JSON tool cards for routers; no network probes |
 
 Common flags: `--no-cache`, `--timeout N`, `--verbose`.

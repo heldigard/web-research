@@ -112,8 +112,10 @@ class Settings:
     cache_max_entries: int = 500
     cache_max_bytes: int = 50_000_000  # 50 MB
 
-    # Synthesis budget — hard cap for source text sent to the final model
-    web_synth_max_context_chars: int = 14000
+    # Synthesis budget — hard cap for source text sent to the final model.
+    # Mirrors the env default in load_settings() so a directly-constructed
+    # Settings() matches the resolved singleton (raised from 14000 in fce82d9).
+    web_synth_max_context_chars: int = 40000
 
     # Sibling harness scripts (ollama_client.py, cheap_llm.py) — see compat.py
     ecosystem_scripts: str = ""
