@@ -22,7 +22,7 @@ from web_research.features.ranking.engine import (
 )
 from web_research.features.read.engine import scrape_with_fallback
 from web_research.features.search.engine import search_with_escalation
-from web_research.features.synthesis.engine import synthesize
+from web_research.features.synthesis.engine import next_search_query, synthesize_result
 from web_research.shared.cache import get as cache_get
 from web_research.shared.cache import set as cache_set
 from web_research.shared.cli_helpers import apply_common
@@ -30,6 +30,10 @@ from web_research.shared.config import SCHEMA_VERSION
 from web_research.shared.formatters import fmt_results
 from web_research.shared.http import _debug, warn
 from web_research.shared.ollama_api import is_alive
+
+# Single follow-up hop budget (keeps multi-hop cheap for agent loops).
+_FOLLOWUP_SCRAPE = 2
+_FOLLOWUP_SEARCH_N = 6
 
 
 def _search_phase(
@@ -150,8 +154,132 @@ def _build_docs(
     return docs
 
 
+def _rank_results(query: str, results: list[dict], needs_fresh: bool) -> list[dict]:
+    """Annotate + recency-aware rerank (shared by primary and follow-up hops)."""
+    results = annotate_quality(results)
+    recency_weight = 0.28 if needs_fresh else 0.12
+    if is_alive() or needs_fresh:
+        results = rerank_results(query, results, recency_weight=recency_weight)
+    return results
+
+
+def _prepare_scrape_order(results: list[dict], k: int, needs_fresh: bool) -> list[dict]:
+    """Reorder so recency diversity leads the scrape window when news-sensitive."""
+    if k <= 0 or not results:
+        return results
+    scrape_pool = select_with_recency_diversity(results, k) if needs_fresh else results[:k]
+    if needs_fresh and scrape_pool:
+        pool_urls = {r.get("url") for r in scrape_pool}
+        rest = [r for r in results if r.get("url") not in pool_urls]
+        return scrape_pool + rest
+    return results
+
+
+def _should_follow_up(
+    *,
+    args: argparse.Namespace,
+    profile: dict,
+    structured: dict | None,
+    docs: list[dict],
+) -> str | None:
+    """Decide whether to run one extra search hop; return the follow-up query.
+
+    Enabled by default for ``--smart`` unless ``--no-follow-up``. Fires when
+    structured synthesis emits a concrete ``recommended_next_search`` and we
+    already have at least one scraped doc (otherwise a hop would not help).
+    """
+    if not docs:
+        return None
+    if not getattr(args, "smart", False):
+        return None
+    if getattr(args, "no_follow_up", False):
+        return None
+    nxt = next_search_query(structured)
+    if not nxt:
+        return None
+    # Avoid re-running essentially the same query.
+    if nxt.strip().lower() == str(args.query).strip().lower():
+        return None
+    return nxt
+
+
+def _merge_docs(primary: list[dict], extra: list[dict]) -> list[dict]:
+    """Append follow-up docs, skipping URL duplicates (primary wins order)."""
+    seen = {str(d.get("url", "")) for d in primary}
+    out = list(primary)
+    for d in extra:
+        url = str(d.get("url", ""))
+        if url and url in seen:
+            continue
+        if url:
+            seen.add(url)
+        out.append(d)
+    return out
+
+
+def _follow_up_hop(
+    *,
+    follow_query: str,
+    args: argparse.Namespace,
+    profile: dict,
+    time_range: str,
+    seen_urls: set[str],
+    needs_fresh: bool,
+) -> tuple[list[dict], list[dict], dict]:
+    """One bounded search+scrape hop for a follow-up query.
+
+    Returns ``(new_results_for_display, new_docs, hop_meta)``.
+    """
+    hop_meta: dict = {
+        "query": follow_query,
+        "fired": True,
+        "docs_added": 0,
+        "search": {},
+        "scraping": {},
+    }
+    results, search_meta = search_with_escalation(
+        follow_query,
+        _FOLLOWUP_SEARCH_N,
+        args.engine,
+        "general",
+        "en",
+        time_range,
+        queries=[follow_query],
+    )
+    hop_meta["search"] = search_meta
+    if not results:
+        hop_meta["fired"] = True
+        hop_meta["reason"] = "no_results"
+        return [], [], hop_meta
+
+    # Drop URLs already scraped in the primary hop.
+    fresh = [r for r in results if str(r.get("url", "")) not in seen_urls]
+    if not fresh:
+        hop_meta["reason"] = "all_urls_seen"
+        return [], [], hop_meta
+
+    fresh = _rank_results(follow_query, fresh, needs_fresh)
+    k = min(_FOLLOWUP_SCRAPE, len(fresh))
+    ordered = _prepare_scrape_order(fresh, k, needs_fresh)
+    top, mds, attempted = _scrape_with_recovery(
+        ordered,
+        k,
+        respect_robots=not getattr(args, "no_robots", False),
+        no_cache=args.no_cache,
+    )
+    docs = _build_docs(top, mds, args, profile.get("intent", "general"))
+    hop_meta["scraping"] = {
+        "requested": k,
+        "attempted": attempted,
+        "succeeded": len(docs),
+    }
+    hop_meta["docs_added"] = len(docs)
+    warn("research", f"follow-up hop: {follow_query!r} → +{len(docs)} docs")
+    return fresh, docs, hop_meta
+
+
 def mode_research(args: argparse.Namespace) -> int:
-    """Research mode: search, scrape, extract, synthesize."""
+    """Research mode: search, scrape, extract, synthesize (+ optional 1 follow-up)."""
     apply_common(args)
     profile = query_profile(args.query)
     # Month (not week): news chains often span 2–3 weeks (announce → extend).
@@ -159,6 +287,7 @@ def mode_research(args: argparse.Namespace) -> int:
     # correct timeline while still keeping results reasonably fresh.
     time_range = args.time or ("month" if profile.get("needs_recency") else "")
     queries = search_queries(args.query, profile) if args.smart else [args.query]
+    follow_up_enabled = bool(args.smart) and not getattr(args, "no_follow_up", False)
     cache_params = {
         "q": args.query,
         "queries": queries,
@@ -168,6 +297,7 @@ def mode_research(args: argparse.Namespace) -> int:
         "scrape": args.scrape,
         "smart": args.smart,
         "code_analyze": getattr(args, "code_analyze", False),
+        "follow_up": follow_up_enabled,
     }
 
     results, cache_hit, search_meta = _search_phase(args, time_range, cache_params, queries)
@@ -193,25 +323,11 @@ def mode_research(args: argparse.Namespace) -> int:
         print(f"_No results for: {args.query}_", file=sys.stderr)
         return 1
 
-    results = annotate_quality(results)
     needs_fresh = bool(profile.get("needs_recency") or profile.get("intent") == "news")
-    # Always mild recency; stronger for news so a 6-day-newer update beats the
-    # original "extends to July 12" headline when embeddings look identical.
-    recency_weight = 0.28 if needs_fresh else 0.12
-    if is_alive() or needs_fresh:
-        # Even without Ollama embeds, recency reordering still helps news.
-        results = rerank_results(args.query, results, recency_weight=recency_weight)
+    results = _rank_results(args.query, results, needs_fresh)
 
     k = min(args.scrape, len(results))
-    # For news, force the freshest dated hit into the scrape set even if
-    # pure top-k score preferred an older near-duplicate.
-    scrape_pool = select_with_recency_diversity(results, k) if needs_fresh else results[:k]
-    # Preserve ranking order for the rest of the pipeline, but ensure pool
-    # members lead so recovery still slides over the full result list.
-    if needs_fresh and scrape_pool:
-        pool_urls = {r.get("url") for r in scrape_pool}
-        rest = [r for r in results if r.get("url") not in pool_urls]
-        results = scrape_pool + rest
+    results = _prepare_scrape_order(results, k, needs_fresh)
 
     top, mds, scrape_attempted = _scrape_with_recovery(
         results,
@@ -220,13 +336,10 @@ def mode_research(args: argparse.Namespace) -> int:
         no_cache=args.no_cache,
     )
     docs = _build_docs(top, mds, args, profile.get("intent", "general"))
+    display_results = list(results)
 
-    source_names = ", ".join(dict.fromkeys(r.get("source", "searxng") for r in top)) or (
-        search_meta.get("engine_used") or args.engine
-    )
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    answer = (
-        synthesize(
+    synth = (
+        synthesize_result(
             args.query,
             docs,
             answer_mode=args.answer,
@@ -234,44 +347,91 @@ def mode_research(args: argparse.Namespace) -> int:
             no_cache=args.no_cache,
         )
         if docs
-        else None
+        else {"answer": None, "structured": None}
     )
+    answer = synth.get("answer")
+    structured = synth.get("structured")
+
+    follow_meta: dict = {"fired": False}
+    follow_q = _should_follow_up(args=args, profile=profile, structured=structured, docs=docs)
+    if follow_q:
+        seen = {str(d.get("url", "")) for d in docs}
+        _extra_results, extra_docs, follow_meta = _follow_up_hop(
+            follow_query=follow_q,
+            args=args,
+            profile=profile,
+            time_range=time_range,
+            seen_urls=seen,
+            needs_fresh=needs_fresh,
+        )
+        if extra_docs:
+            docs = _merge_docs(docs, extra_docs)
+            # Re-synthesize over the expanded evidence (still one extra synth).
+            synth = synthesize_result(
+                args.query,
+                docs,
+                answer_mode=args.answer,
+                structured=args.smart,
+                no_cache=True,  # evidence set changed
+            )
+            answer = synth.get("answer")
+            structured = synth.get("structured")
+            follow_meta["re_synthesized"] = True
+        # Keep follow-up hits available for snippet fallback display.
+        if _extra_results:
+            display_results = _merge_docs(
+                [{"url": r.get("url"), "title": r.get("title"), **r} for r in display_results],
+                _extra_results,
+            )
+
+    source_names = ", ".join(
+        dict.fromkeys(str(d.get("source") or d.get("engine") or "searxng") for d in docs)
+    ) or (search_meta.get("engine_used") or args.engine)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     pipeline = {
         "search": search_meta,
         "scraping": {
             "requested": k,
             "attempted": scrape_attempted,
-            "succeeded": len(docs),
-            "recovered": scrape_attempted > k and len(docs) > 0,
+            "succeeded": len(docs) - int(follow_meta.get("docs_added") or 0),
+            "recovered": scrape_attempted > k
+            and (len(docs) - int(follow_meta.get("docs_added") or 0)) > 0,
         },
+        "follow_up": follow_meta,
     }
+    # Report total scraped including follow-up.
+    pipeline["scraping"]["total_docs"] = len(docs)
 
     if args.json:
         _print_json_research(
             args=args,
             profile=profile,
-            top=top or results[: args.n],
+            top=docs if docs else display_results[: args.n],
             docs=docs,
             answer=answer,
             cache_hit=cache_hit,
             requested_scrapes=k,
             pipeline=pipeline,
+            structured=structured,
         )
         return 0
 
     esc = ""
     if search_meta.get("escalated"):
         esc = f" · escalated {search_meta.get('engine_requested')}→{search_meta.get('engine_used')}"
+    hop = ""
+    if follow_meta.get("docs_added"):
+        hop = f" · follow-up +{follow_meta['docs_added']}"
     print(f"# Research: {args.query}\n")
     print(
         f"_Engine: {source_names}{esc} | Scraped: {len(docs)}/{k}"
-        f" (tried {scrape_attempted}) | Date: {today}_\n"
+        f" (tried {scrape_attempted}){hop} | Date: {today}_\n"
     )
 
     if not docs:
         print("_Could not scrape full content; showing search snippets:_\n")
-        print(fmt_results(results))
+        print(fmt_results(display_results))
         return 0
 
     if answer:
@@ -294,31 +454,34 @@ def _print_json_research(
     cache_hit: bool,
     requested_scrapes: int,
     pipeline: dict | None = None,
+    structured: dict | None = None,
 ) -> None:
     """Emit a stable evidence envelope for agents and cross-CLI orchestration."""
-    docs_by_url = {str(doc.get("url", "")): doc for doc in docs}
+    # Prefer scraped docs as the source list (includes follow-up); fall back to
+    # search hits when nothing was scraped.
+    rows = docs if docs else top
     sources = []
     evidence = []
-    for index, result in enumerate(top, 1):
-        url = str(result.get("url", ""))
-        doc = docs_by_url.get(url)
+    for index, row in enumerate(rows, 1):
+        url = str(row.get("url", ""))
+        scraped = bool(row.get("extracted") or row.get("text")) if docs else False
+        if docs:
+            scraped = True
         sources.append(
             {
                 "index": index,
-                "title": result.get("title", ""),
+                "title": row.get("title", ""),
                 "url": url,
-                "engine": result.get("engine", ""),
-                "source": result.get("source", ""),
-                "published_date": result.get("publishedDate", ""),
-                "scraped": doc is not None,
+                "engine": row.get("engine", ""),
+                "source": row.get("source", ""),
+                "published_date": row.get("publishedDate", ""),
+                "scraped": scraped if docs else False,
             }
         )
         evidence.append(
             {
                 "source": index,
-                "text": (
-                    doc.get("extracted", "") if doc is not None else result.get("content", "")
-                ),
+                "text": (row.get("extracted") or row.get("text") or row.get("content") or ""),
             }
         )
     scraping = (pipeline or {}).get("scraping") or {
@@ -338,6 +501,17 @@ def _print_json_research(
         "sources": sources,
         "evidence": evidence,
     }
+    if structured is not None:
+        # Compact agent-facing fields only (full rendered answer is above).
+        payload["structured"] = {
+            "unknowns": structured.get("unknowns") if isinstance(structured, dict) else None,
+            "recommended_next_search": (
+                structured.get("recommended_next_search") if isinstance(structured, dict) else None
+            ),
+            "facts_count": (
+                len(structured.get("facts") or []) if isinstance(structured, dict) else 0
+            ),
+        }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

@@ -98,11 +98,32 @@ def synthesize(
 ) -> str | None:
     """Generate cited synthesis using Ollama, falling back to cheap cloud LLM.
 
-    If structured=True, attempts to return a JSON object that is then rendered
-    as clean markdown. Results are cached on disk (prefix ``synth``) keyed on
-    query + source set + modes + synthesis model, so re-running the same
-    research returns the prior answer without re-invoking Ollama/cloud.
-    Pass ``no_cache=True`` to bypass.
+    Back-compat wrapper over :func:`synthesize_result` (returns only the
+    rendered answer string). Prefer ``synthesize_result`` when the caller
+    needs structured fields such as ``recommended_next_search`` for multi-hop.
+    """
+    return synthesize_result(
+        query, docs, answer_mode=answer_mode, structured=structured, no_cache=no_cache
+    )["answer"]
+
+
+def synthesize_result(
+    query: str,
+    docs: list[dict],
+    answer_mode: bool = False,
+    structured: bool = False,
+    no_cache: bool = False,
+) -> dict:
+    """Like :func:`synthesize` but also returns structured meta when available.
+
+    Return shape::
+
+        {"answer": str | None, "structured": dict | None}
+
+    ``structured`` is the grounded JSON object (facts/unknowns/next search)
+    when ``structured=True`` and the model produced parseable JSON; else None.
+    Research uses this to decide a single follow-up hop without re-parsing
+    markdown.
     """
     ctx_parts = []
     remaining = WEB_SYNTH_MAX_CONTEXT_CHARS
@@ -143,7 +164,8 @@ def synthesize(
             "(e.g. 'until July 12' vs 'until July 19'), put both in contradictions "
             "or facts with dates, and state the latest date in answer.\n"
             "- Put open questions in unknowns; put a concrete follow-up query in "
-            "recommended_next_search when gaps remain."
+            "recommended_next_search when gaps remain "
+            "(date timelines, prior extensions, official primary sources)."
         )
     elif answer_mode:
         style = (
@@ -165,30 +187,29 @@ def synthesize(
     prompt = f"QUERY: {query}\n\nSOURCES:\n{context}\n\n{style}"
 
     # Synthesis backend chain: local Ollama (PRIMARY → FALLBACK) → cloud.
-    # PRIMARY (TeichAI/Fable-5-v1) is the web_synth champion; FALLBACK
-    # (xentriom/gemma-4-12B-agentic-fable5-composer2.5-v2:Q8_0, 12GB VRAM)
-    # covers VRAM-contention / 4xx / model-not-loaded cases so callers still
-    # get a local synthesis instead of a cloud round-trip. Cloud (deepseek-v4-
-    # flash) is the last resort when both Ollama tiers fail or the daemon is
-    # down — keeps the API fail-open for agent loops that need a cited answer.
     settings = get_settings()
 
-    # Cache lookup: same query + source set + modes + model returns the prior
-    # answer without re-running the chain. engine_tag = synth model so a model
-    # bump forces a re-synthesis even within the cache TTL.
     cache_params = _synth_cache_params(
         query, docs, answer_mode, structured, WEB_SYNTH_MAX_CONTEXT_CHARS
     )
     if not no_cache:
         cached = cache_get("synth", cache_params, engine_tag=settings.ollama_synth_model)
         if cached:
-            return cached["answer"]
+            return {
+                "answer": cached.get("answer"),
+                "structured": cached.get("structured"),
+            }
 
-    result = _run_synth_chain(prompt, base_system, structured, settings, docs=docs)
+    answer, structured_data = _run_synth_chain(prompt, base_system, structured, settings, docs=docs)
 
-    if result and not no_cache:
-        cache_set("synth", cache_params, {"answer": result}, engine_tag=settings.ollama_synth_model)
-    return result
+    if answer and not no_cache:
+        cache_set(
+            "synth",
+            cache_params,
+            {"answer": answer, "structured": structured_data},
+            engine_tag=settings.ollama_synth_model,
+        )
+    return {"answer": answer, "structured": structured_data}
 
 
 def _run_synth_chain(
@@ -197,13 +218,11 @@ def _run_synth_chain(
     structured: bool,
     settings: Settings,
     docs: list[dict] | None = None,
-) -> str | None:
-    """Run the local→fallback→cloud backend chain, return the formatted answer.
+) -> tuple[str | None, dict | None]:
+    """Run the local→fallback→cloud backend chain.
 
-    Each backend's output is post-processed via :func:`_format_answer` so the
-    caller (and the cache) always stores the rendered form. The chain order is
-    documented at the call site (PRIMARY → FALLBACK → cloud). Structured
-    answers are citation-grounded against ``docs`` before rendering.
+    Returns ``(rendered_answer, structured_data)``. Structured data is only
+    populated when ``structured=True`` and JSON parsed cleanly.
     """
     local_attempts: list[tuple[str, str]] = [
         (settings.ollama_synth_model, "ollama"),
@@ -218,7 +237,9 @@ def _run_synth_chain(
             return _format_answer(answer, structured, docs=docs)
     cloud_fn = partial(_synthesize_cloud, structured=structured)
     answer = _try_synthesize(cloud_fn, "cloud", prompt, base_system)
-    return _format_answer(answer, structured, docs=docs) if answer else None
+    if not answer:
+        return None, None
+    return _format_answer(answer, structured, docs=docs)
 
 
 def _compact_source_text(text: str, max_chars: int) -> str:
@@ -245,11 +266,16 @@ def _try_synthesize(fn, label: str, prompt: str, system: str) -> str | None:
         return None
 
 
-def _format_answer(answer: str, structured: bool, docs: list[dict] | None = None) -> str | None:
-    """Render a structured answer or return the prose answer as-is."""
+def _format_answer(
+    answer: str, structured: bool, docs: list[dict] | None = None
+) -> tuple[str | None, dict | None]:
+    """Render a structured answer or return the prose answer as-is.
+
+    Returns ``(rendered, structured_data)``.
+    """
     if structured:
         return _render_structured(answer, docs=docs)
-    return answer
+    return answer, None
 
 
 # Content tokens used for lightweight claim↔source grounding. Small stopword
@@ -399,11 +425,14 @@ def ground_structured_facts(data: dict, docs: list[dict]) -> dict:
     return data
 
 
-def _render_structured(answer: str, docs: list[dict] | None = None) -> str:
-    """Parse structured JSON (tolerating fences/prose) and render as clean markdown."""
+def _render_structured(answer: str, docs: list[dict] | None = None) -> tuple[str, dict | None]:
+    """Parse structured JSON (tolerating fences/prose) and render as clean markdown.
+
+    Returns ``(rendered_markdown, grounded_data_or_None)``.
+    """
     data = _extract_json_object(answer)
     if data is None:
-        return answer
+        return answer, None
 
     if docs:
         data = ground_structured_facts(data, docs)
@@ -414,7 +443,25 @@ def _render_structured(answer: str, docs: list[dict] | None = None) -> str:
     _render_contradictions(data, sections)
     _render_unknowns(data, sections)
     _render_next_search(data, sections)
-    return "\n".join(sections).strip() or answer
+    rendered = "\n".join(sections).strip() or answer
+    return rendered, data
+
+
+def next_search_query(structured: dict | None) -> str | None:
+    """Extract a usable follow-up search query from structured synthesis meta."""
+    if not isinstance(structured, dict):
+        return None
+    raw = structured.get("recommended_next_search")
+    if not isinstance(raw, str):
+        return None
+    q = raw.strip().strip('"').strip("'")
+    if len(q) < 8 or len(q) > 200:
+        return None
+    # Reject placeholder / non-query noise.
+    low = q.lower()
+    if low in {"none", "n/a", "na", "null", "no further search", "no"}:
+        return None
+    return q
 
 
 def _render_answer(data: dict, lines: list[str]) -> None:

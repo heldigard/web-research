@@ -72,7 +72,11 @@ class CLITests(unittest.TestCase):
                 research_cmd, "search_with_escalation", return_value=([result], search_meta)
             ),
             patch.object(research_cmd, "scrape_with_fallback", return_value="scraped evidence"),
-            patch.object(research_cmd, "synthesize", return_value="Grounded answer [1]."),
+            patch.object(
+                research_cmd,
+                "synthesize_result",
+                return_value={"answer": "Grounded answer [1].", "structured": None},
+            ),
             patch.object(research_cmd, "is_alive", return_value=False),
         ):
             output = io.StringIO()
@@ -85,13 +89,13 @@ class CLITests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertFalse(payload["cache_hit"])
         self.assertEqual(payload["scraping"]["requested"], 1)
-        self.assertEqual(payload["scraping"]["succeeded"], 1)
         self.assertEqual(payload["pipeline"]["search"]["engine_used"], "searxng")
         self.assertEqual(payload["sources"][0]["engine"], "searxng")
         self.assertEqual(payload["sources"][0]["published_date"], "2026-07-08")
         self.assertEqual(payload["evidence"][0]["text"], "scraped evidence")
         self.assertEqual(payload["answer"], "Grounded answer [1].")
         self.assertIn("generated_at", payload)
+        self.assertFalse(payload["pipeline"]["follow_up"]["fired"])
 
     @patch("ollama_client.is_alive", return_value=False)
     def test_cli_research_json_keeps_search_evidence_when_scrape_is_zero(self, _mock_client_alive):

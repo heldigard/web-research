@@ -89,7 +89,7 @@ class SynthesisTests(unittest.TestCase):
             '{"answer":"A","facts":[{"claim":"c","source":1,"confidence":"high"}],'
             '"unknowns":["u"],"recommended_next_search":"next"}'
         )
-        out = _render_structured(payload)
+        out, _data = _render_structured(payload)
         self.assertIn("A", out)
         self.assertIn("Key facts", out)
         self.assertIn("(high)", out)
@@ -99,7 +99,7 @@ class SynthesisTests(unittest.TestCase):
     def test_render_structured_invalid_json_passthrough(self):
         from web_research.features.synthesis.engine import _render_structured
 
-        out = _render_structured("not json at all")
+        out, _data = _render_structured("not json at all")
         self.assertEqual(out, "not json at all")
 
     def test_compact_source_text_marks_truncation(self):
@@ -190,7 +190,7 @@ class RenderStructuredTests(unittest.TestCase):
                 "contradictions": [{"claim_a": "X works", "claim_b": "X fails", "sources": [1, 3]}],
             }
         )
-        out = _render_structured(payload)
+        out, _data = _render_structured(payload)
         self.assertIn("[1, 3]", out)
         self.assertNotIn("[1,3]", out)  # no raw list repr
 
@@ -198,7 +198,7 @@ class RenderStructuredTests(unittest.TestCase):
         from web_research.features.synthesis.engine import _render_structured
 
         payload = json.dumps({"contradictions": [{"claim_a": "A", "claim_b": "B", "sources": []}]})
-        out = _render_structured(payload)
+        out, _data = _render_structured(payload)
         self.assertIn("A vs B", out)
         self.assertNotIn("[]", out)
 
@@ -206,7 +206,7 @@ class RenderStructuredTests(unittest.TestCase):
         from web_research.features.synthesis.engine import _render_structured
 
         payload = json.dumps({"contradictions": [{"claim_a": "A", "claim_b": "B"}]})
-        out = _render_structured(payload)
+        out, _data = _render_structured(payload)
         self.assertIn("A vs B", out)
 
     def test_full_structured_roundtrip(self):
@@ -224,7 +224,7 @@ class RenderStructuredTests(unittest.TestCase):
                 "recommended_next_search": "search for X",
             }
         )
-        out = _render_structured(payload)
+        out, _data = _render_structured(payload)
         self.assertIn("The answer", out)
         self.assertIn("Key facts", out)
         self.assertIn("(high) fact1 [1]", out)

@@ -125,6 +125,12 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
         "append a 'Local code context' section to each scraped doc before "
         "synthesis. No-op when codeq is absent or no symbol resolves locally.",
     )
+    pr.add_argument(
+        "--no-follow-up",
+        action="store_true",
+        help="with --smart: skip the automatic single follow-up search hop "
+        "suggested by structured synthesis (recommended_next_search).",
+    )
     pr.add_argument("--json", action="store_true", help="emit structured research evidence")
     pr.set_defaults(func=handlers["research"])
 

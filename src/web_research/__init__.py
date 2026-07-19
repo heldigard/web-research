@@ -49,7 +49,12 @@ from .features.search.engine import (
     zai_search,
 )
 from .features.synthesis import engine as synthesis  # noqa: E402,F401
-from .features.synthesis.engine import ground_structured_facts, synthesize
+from .features.synthesis.engine import (
+    ground_structured_facts,
+    next_search_query,
+    synthesize,
+    synthesize_result,
+)
 from .shared.formatters import fmt_results, fmt_smart_results
 
 __all__ = [
@@ -76,7 +81,9 @@ __all__ = [
     "searxng_search",
     "zai_search",
     "ground_structured_facts",
+    "next_search_query",
     "synthesize",
+    "synthesize_result",
     # module aliases (historic flat names)
     "search",
     "reader",

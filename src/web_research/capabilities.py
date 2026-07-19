@@ -90,6 +90,16 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
                 "unavailable": "no_op",
                 "structured_output": "local_code_context",
             },
+            "follow_up": {
+                "flag": "--no-follow-up",
+                "default": True,
+                "when": "smart",
+                "effect": "disable_single_follow_up_search_hop",
+                "description": (
+                    "With --smart, run at most one extra search+scrape hop from "
+                    "structured recommended_next_search, then re-synthesize."
+                ),
+            },
             "json": {"flag": "--json", "default": False, "structured_output": True},
         },
     },

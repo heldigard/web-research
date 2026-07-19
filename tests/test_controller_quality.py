@@ -130,7 +130,7 @@ class CitationGroundingTests(unittest.TestCase):
             '{"answer":"A","facts":[{"claim":"quantum entanglement drives blockchain '
             'throughput","source":1,"confidence":"high"}],"unknowns":[]}'
         )
-        out = _render_structured(payload, docs=docs)
+        out, _data = _render_structured(payload, docs=docs)
         self.assertIn("ungrounded", out)
         self.assertIn("(low)", out)
 
