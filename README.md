@@ -88,6 +88,8 @@ Common flags: `--no-cache`, `--timeout N`, `--verbose`.
 - **Scrape failures** → window slides past dead top-K URLs until enough
   pages succeed or results are exhausted.
 - **`--smart` facts** → lexical citation grounding demotes ungrounded claims.
+- **`--smart` multi-hop** → one automatic follow-up search from
+  `recommended_next_search` (disable with `--no-follow-up`).
 
 ## Configuration
 

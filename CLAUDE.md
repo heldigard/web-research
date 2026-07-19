@@ -65,7 +65,8 @@ Common: --no-cache --timeout N --verbose
 
 Controller resilience (automatic, no flags): empty primary engine escalates
 free→paid; top-K scrape failures slide to later hits; structured synthesis
-grounds claims against cited source text (`--smart`).
+grounds claims against cited source text (`--smart`); one follow-up hop from
+`recommended_next_search` unless `--no-follow-up`.
 
 ## Conventions
 

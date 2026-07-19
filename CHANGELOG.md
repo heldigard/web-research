@@ -6,6 +6,18 @@ that constraint.
 
 ## [Unreleased] — 2026-07-19
 
+### Multi-hop follow-up + retrieval eval (2026-07-19)
+
+- **Single follow-up hop** (`research --smart`): after structured synthesis,
+  if `recommended_next_search` is a concrete query, run one extra
+  search+scrape (≤2 pages), merge URL-deduped docs, and re-synthesize.
+  Disable with `--no-follow-up`. Pipeline meta: `pipeline.follow_up`.
+- **`synthesize_result`**: returns `{answer, structured}` for agent multi-hop
+  without re-parsing markdown; `synthesize()` remains the string wrapper.
+- **Offline retrieval eval** (`tests/test_retrieval_eval.py`): fixture gates
+  for publish-date parse, near-dup→newer, recency MRR, diversity pick.
+- Capabilities manifest documents the follow-up option.
+
 ### Recency / news correctness (2026-07-19)
 
 - **Root cause of "missed July 19 extension"** (Fable 5 case): ranking used only

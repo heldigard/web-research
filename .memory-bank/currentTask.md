@@ -2,15 +2,12 @@
 > Updated: 2026-07-19
 
 ## Goal
-None active — controller quality + recency batch ready to ship.
+None active.
 
 ## Last completed
-- Engine cascade, grounding, scrape recovery, ES profiles
-- Recency ranking + news profile + sticky needs_recency
-- Live smoke Fable 5 → July 19 extension correct
-- Memory hygiene; commits + push pending controller
+Multi-hop follow-up + offline retrieval eval on top of controller quality /
+recency batch. Ready for commit+push.
 
 ## Next likely work
-- P2 shared model registry if model drift hurts
-- Retrieval eval harness
-- Optional multi-hop news follow-up
+- Expand retrieval fixtures when ranking changes again
+- Shared model registry (P2) if drift hurts

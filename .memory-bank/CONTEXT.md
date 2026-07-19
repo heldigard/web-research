@@ -1,44 +1,29 @@
 # CONTEXT - Current State
-> Updated: 2026-07-19 (controller quality + recency SHIPPED)
+> Updated: 2026-07-19 (multi-hop + retrieval eval SHIPPED)
 
 ## What this is
-Local-first web research engine for LLM agents. Graduated 2026-07-04 from
-`~/.claude/scripts/web_research/` into `~/web-research/` (vertical-slice package).
-Public: https://github.com/heldigard/web-research
+Local-first web research engine for LLM agents. Public:
+https://github.com/heldigard/web-research
 
 ## Active Focus
-**Idle.** Shipped 2026-07-19 (this session):
+**Idle.** Latest (2026-07-19):
 
-### Controller quality
-1. Empty-engine cascade free→paid (`search_with_escalation`)
-2. Citation grounding on structured synthesis
-3. Scrape window recovery past failed top-K
-4. ES/whole-word query profiles; search exit 1 on empty
-5. `research --json` pipeline diagnostics
+1. Controller quality — cascade, grounding, scrape recovery, ES profiles
+2. Recency ranking — publish-date parse, near-dup newer, sticky news profile
+3. **Multi-hop** — `--smart` one follow-up from `recommended_next_search`
+   (`--no-follow-up` to skip); `synthesize_result` returns structured meta
+4. **Retrieval eval** — offline fixture suite (`tests/test_retrieval_eval.py`)
 
-### Recency / news (Fable-5 class failure)
-1. Publish-date parse (field / URL `/YYYY/MM/DD/` / ISO title)
-2. Recency weight in rerank; near-dup prefers newer
-3. Scrape diversity for news; product-news profile
-4. Sticky heuristic recency vs LLM; auto time_range=month
-5. Synthesis timeline rules for conflicting deadlines
-6. Live smoke: research finds July 19 Fable 5 extension (not July 12)
-
-**Suite: ~168 tests**, ruff clean. Live stack OK.
-
-## Architecture (stable)
-- Vertical slices: `features/{search,read,research,ranking,intelligence,synthesis,status}/`
-- Shared: `Settings` + `HttpClient` Protocol + schema-versioned disk cache
-- Optional ecosystem: `WEB_RESEARCH_SCRIPTS` → `ollama_client` + `cheap_llm` shims
+**Live smoke**: Fable-5 research cites July 19 extension.
+**Suite**: full green (follow-up + retrieval eval included).
 
 ## Key decisions
 - Zero runtime deps (stdlib only)
-- Escalation free-first to protect paid quota
-- Snippet body not used for publish date (event deadlines confuse recency)
-- Month not week for auto recency filter (announce→extend chains)
+- Max **one** follow-up hop (cost-bounded for agent loops)
+- Snippet deadlines ≠ publish dates; CMS URL dates preferred
+- Month auto time_range for recency queries
 
 ## Next (optional)
-- Shared model registry (proposals P2)
-- Retrieval eval suite (MRR 0.724 baseline manual)
-- Optional multi-hop follow-up search from `recommended_next_search`
-- Semantic claim grounding (embed claim↔source) beyond lexical
+- P2 shared model registry
+- Embed-based claim grounding
+- Expand retrieval eval with more fixtures / real MRR corpus
