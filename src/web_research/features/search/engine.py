@@ -59,17 +59,21 @@ def _search_one_query(
     lang: str,
     time_range: str,
 ) -> list[dict]:
-    """Run the requested engine plus a SearXNG fallback, return merged dicts.
+    """Run the requested engine plus an optional SearXNG fallback.
 
-    SearXNG is appended as a fallback when the primary engine is paid
+    SearXNG is appended **only** when the primary engine is paid
     (MiniMax / Z.AI) so free broad results supplement the subscription
-    results without duplicating them (URL dedup downstream).
+    results without duplicating them (URL dedup downstream). Free engines
+    (``duckduckgo``, ``searxng``) stand alone: a silent SearXNG merge used
+    to mask DuckDuckGo failures as "searxng" results while ``--engine
+    duckduckgo`` was selected.
     """
     instances: list[SearchBackend] = []
     primary = build_backend(engine)
     if primary is not None:
         instances.append(primary)
-    if engine != "searxng":
+    # Paid-only free-breadth fallback — keep in sync with the docstring above.
+    if engine in ("minimax", "zai"):
         instances.append(SearXNGBackend(cat=cat, lang=lang))
 
     def fetch(b: SearchBackend) -> list[SearchResult]:

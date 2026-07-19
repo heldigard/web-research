@@ -42,10 +42,15 @@ from web_research.features.ranking.engine import (
 )
 from web_research.features.read.backends.html import _html_to_markdown
 from web_research.features.read.engine import read_with_fallback
+from web_research.features.search.backends.base import SearchResult
 from web_research.features.search.backends.duckduckgo import (
+    _DDG_HEADERS,
+    DuckDuckGoBackend,
     _DDGResultParser,
     _decode_ddg_href,
+    _is_challenge_page,
 )
+from web_research.features.search.engine import search_backends
 from web_research.features.synthesis.engine import _extract_json_object
 from web_research.shared import cache
 from web_research.shared.cache import _collect_cache_entries
@@ -411,7 +416,7 @@ class TeiRerankTests(unittest.TestCase):
 
 
 class DuckDuckGoTests(unittest.TestCase):
-    """DDG redirect unwrap + HTML parsing."""
+    """DDG redirect unwrap + HTML parsing + challenge handling."""
 
     def test_decode_uddg_redirect(self) -> None:
         href = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage&rut=abc"
@@ -440,6 +445,95 @@ class DuckDuckGoTests(unittest.TestCase):
         self.assertEqual(parser.results[0]["url"], "https://docs.python.org/json")
         self.assertEqual(parser.results[0]["title"], "Python json")
         self.assertIn("short", parser.results[1]["snippet"])
+
+    def test_challenge_page_detection(self) -> None:
+        self.assertTrue(_is_challenge_page(b'<div class="anomaly-modal__mask">bots</div>'))
+        self.assertTrue(_is_challenge_page(b"Unfortunately, bots use DuckDuckGo too."))
+        self.assertFalse(_is_challenge_page(b'<a class="result__a" href="/x">ok</a>'))
+
+    def test_search_sends_anti_challenge_headers(self) -> None:
+        """Browser-like Accept/Referer headers are required to avoid DDG captcha."""
+        captured: dict[str, object] = {}
+
+        def fake_get_bytes(url: str, *, timeout: float | None = None, headers: dict | None = None):
+            captured["url"] = url
+            captured["headers"] = headers or {}
+            return (
+                b'<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fex.com%2Fa">'
+                b"Title</a>"
+                b'<a class="result__snippet">Snippet</a>'
+            )
+
+        with patch(
+            "web_research.features.search.backends.duckduckgo.default_client"
+        ) as mock_client:
+            mock_client.return_value.get_bytes.side_effect = fake_get_bytes
+            results = DuckDuckGoBackend().search("q", 3)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].url, "https://ex.com/a")
+        sent = captured["headers"]
+        assert isinstance(sent, dict)
+        for key, value in _DDG_HEADERS.items():
+            self.assertEqual(sent.get(key), value)
+
+    def test_search_returns_empty_on_challenge_page(self) -> None:
+        challenge = (
+            b'<div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div>'
+        )
+        with patch(
+            "web_research.features.search.backends.duckduckgo.default_client"
+        ) as mock_client:
+            mock_client.return_value.get_bytes.return_value = challenge
+            results = DuckDuckGoBackend().search("q", 3)
+        self.assertEqual(results, [])
+
+
+class SearchFallbackPolicyTests(unittest.TestCase):
+    """Paid engines get SearXNG breadth; free engines stand alone."""
+
+    @staticmethod
+    def _hit(title: str, url: str, source: str, engine: str = "") -> SearchResult:
+        return SearchResult(
+            title=title,
+            url=url,
+            content="x",
+            engine=engine or source,
+            source=source,
+            published_date="",
+        )
+
+    def test_duckduckgo_does_not_merge_searxng(self) -> None:
+        with (
+            patch("web_research.features.search.engine.build_backend") as mock_build,
+            patch("web_research.features.search.engine.SearXNGBackend") as mock_sx,
+        ):
+            primary = mock_build.return_value
+            primary.name = "duckduckgo"
+            primary.search.return_value = [self._hit("D", "https://d.example/a", "duckduckgo")]
+            res = search_backends(
+                "q", num=3, engine="duckduckgo", cat="general", lang="en", time_range=""
+            )
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["source"], "duckduckgo")
+        mock_sx.assert_not_called()
+
+    def test_minimax_still_merges_searxng(self) -> None:
+        with patch("web_research.features.search.engine.build_backend") as mock_build:
+            primary = mock_build.return_value
+            primary.name = "minimax"
+            primary.search.return_value = [self._hit("M", "https://m.example/a", "minimax")]
+            with patch("web_research.features.search.engine.SearXNGBackend") as mock_sx_cls:
+                sx = mock_sx_cls.return_value
+                sx.name = "searxng"
+                sx.search.return_value = [
+                    self._hit("S", "https://s.example/b", "searxng", engine="google")
+                ]
+                res = search_backends(
+                    "q", num=5, engine="minimax", cat="general", lang="en", time_range=""
+                )
+        sources = {r["source"] for r in res}
+        self.assertEqual(sources, {"minimax", "searxng"})
+        mock_sx_cls.assert_called_once()
 
 
 class CodeAnalyzeTests(unittest.TestCase):

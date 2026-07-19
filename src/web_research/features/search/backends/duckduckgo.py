@@ -25,6 +25,25 @@ from .base import SearchResult
 
 _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 
+# DDG's anomaly challenge (bot captcha) triggers when the request looks like
+# a bare scraper. A project UA alone is not enough; Accept + Accept-Language
+# + Referer match the lite HTML client and consistently avoid the challenge
+# on Ubuntu-native runs (verified 2026-07-18). Keep these minimal — full
+# browser UAs actually *increase* challenge rates on html.duckduckgo.com.
+_DDG_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://html.duckduckgo.com/",
+}
+
+# Markers in the challenge HTML page ("Unfortunately, bots use DuckDuckGo too.").
+_DDG_CHALLENGE_MARKERS = (b"anomaly-modal", b"bots use DuckDuckGo")
+
+
+def _is_challenge_page(raw: bytes) -> bool:
+    """Return True when DDG served a bot-challenge page instead of results."""
+    return any(marker in raw for marker in _DDG_CHALLENGE_MARKERS)
+
 
 class DuckDuckGoBackend:
     """``GET {html_url}?q=...`` — anonymous, no auth, HTML scraping."""
@@ -44,12 +63,19 @@ class DuckDuckGoBackend:
             raw = default_client().get_bytes(
                 f"{self.base_url}/?{urlencode({'q': query})}",
                 timeout=20,
+                headers=_DDG_HEADERS,
             )
         except urllib.error.URLError as e:
             warn("duckduckgo", str(e))
             return []
         except Exception as e:  # noqa: BLE001
             warn("duckduckgo", f"{type(e).__name__}: {e}")
+            return []
+        if _is_challenge_page(raw):
+            warn(
+                "duckduckgo",
+                "blocked by DuckDuckGo bot challenge; use --engine searxng or retry later",
+            )
             return []
         parser = _DDGResultParser()
         try:

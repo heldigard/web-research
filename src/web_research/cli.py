@@ -28,7 +28,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except urllib.error.URLError as e:
-        print(f"[error] network: {e}\n(check service is up: docker ps)", file=sys.stderr)
+        print(
+            f"[error] network: {e}\n(check service is up: web-research status)",
+            file=sys.stderr,
+        )
         return 2
     except KeyboardInterrupt:
         return 130
