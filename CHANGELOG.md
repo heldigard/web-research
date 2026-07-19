@@ -4,11 +4,23 @@ All notable changes to `web-research` are documented here. The project stays
 **zero-dependency, local-first** (stdlib only) — every enhancement below honors
 that constraint.
 
-## [Unreleased] — 2026-07-12
+## [Unreleased] — 2026-07-18
 
-Enhancement batch: resilience, compliance, ranking quality, and three new
-pluggable backends — all stdlib-only, all backward-compatible (existing CLI,
-public functions, and on-disk cache format unchanged).
+### Ubuntu-native correctness (2026-07-18)
+
+- **DuckDuckGo bot-challenge bypass** — `html.duckduckgo.com` now returns a
+  captcha page for bare scrapers. The DDG backend sends Accept /
+  Accept-Language / Referer headers (still project UA; full browser UAs
+  worsen challenge rates) and detects challenge HTML so agents get an
+  explicit stderr warning instead of silent empty results.
+- **Search fallback policy** — SearXNG free-breadth merge is now limited to
+  paid engines (`minimax`, `zai`), matching the documented intent. Selecting
+  `--engine duckduckgo` no longer silently labels SearXNG hits as the result
+  source when DDG fails.
+- **CLI network error hint** points at `web-research status` (Ubuntu-native
+  stack) instead of `docker ps`.
+- Docs: `CLAUDE.md` model defaults + `status` subcommand aligned with live
+  `config.py` / README.
 
 ### Correctness hardening (2026-07-12)
 

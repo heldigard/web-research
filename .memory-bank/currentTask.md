@@ -1,14 +1,15 @@
 # Current Task
-> Updated: 2026-07-12
+> Updated: 2026-07-18
 
 ## Goal
-None active. Autonomous cache/CLI resilience audit completed locally:
-125 tests green, 89.30% coverage, build green, and codescan all clean.
-See `docs/plans/2026-07-12-001-fix-cache-cli-resilience-plan.md` and the
-2026-07-12 `progress.md` entry.
+None active.
+
+## Last completed
+Ubuntu-native correctness + ops pass: `status` subcommand, DDG anti-challenge
+headers, paid-only SearXNG fallback, CLI status hint, docs/memory hygiene.
+**144 tests** green; live DDG + stack smoke OK.
 
 ## Next likely work
-- cheap_llm.py graduation (separate future project — 33KB, 8+ consumers).
-- Live-model re-bench if OLLAMA_SYNTH_MODEL / OLLAMA_EMBED change.
-- Optional: `ragas`/`promptfoo` eval suite to regression-test retrieval quality.
-- Optional: TEI rerank live smoke once a TEI server is stood up locally.
+- Shared model registry (proposals P2) if cross-repo model drift hurts again
+- Live re-bench when `OLLAMA_SYNTH_MODEL` / `OLLAMA_EMBED` change
+- Optional: TEI rerank smoke; retrieval eval suite

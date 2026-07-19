@@ -10,7 +10,9 @@ web-research read    <url>   [--engine firecrawl|zai|html] [--no-robots]
                              [--wait N] [--zai-timeout N] [--max-chars N]
 web-research research <query> [-n 6] [--scrape 3] [--engine searxng|zai|minimax|duckduckgo]
                              [--time ...] [--answer] [--smart] [--max-chars N] [--no-robots]
-                             [--code-analyze]
+                             [--code-analyze] [--json]
+web-research status [--json]   # probe local services + models/keys/cache
+web-research capabilities      # machine-readable router contract; no network probes
 
 Common: --no-cache --timeout N --verbose
 ```

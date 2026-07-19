@@ -57,6 +57,7 @@ web-research research <query> [-n 6] [--scrape 3]
                              [--engine searxng|zai|minimax|duckduckgo] [--time ...]
                              [--answer] [--smart] [--max-chars N] [--no-robots]
                              [--code-analyze] [--json]
+web-research status        # probe SearXNG/Firecrawl/Ollama + models/keys/cache
 web-research capabilities  # machine-readable router contract; no network probes
 
 Common: --no-cache --timeout N --verbose
@@ -84,8 +85,11 @@ Common: --no-cache --timeout N --verbose
 
 ## Model routing
 
-- **Local (Ollama)**: `OLLAMA_MODEL` (universal default `qwen3.5:4b`) for
-  query_profile/focused_extract; `OLLAMA_SYNTH_MODEL` (`aratan/gemma-4-E4B-it-heretic:Q6_K`)
-  for the final cited synthesis.
-- **Cloud fallback**: `WEB_SYNTH_CLOUD_MODEL` (`deepseek-v4-flash`) via
+- **Local (Ollama)**: `OLLAMA_MODEL` (default `cryptidbleh/gemma4-claude-opus-4.6:latest`)
+  for query_profile/focused_extract; `OLLAMA_SYNTH_MODEL`
+  (`hf.co/TeichAI/Qwen3.5-9B-Fable-5-v1-GGUF:Q4_K_M`) for the final cited
+  synthesis; `OLLAMA_SYNTH_FALLBACK_MODEL` for the local secondary when primary
+  fails; `OLLAMA_EMBED` (`embeddinggemma`) for semantic rerank.
+- **Cloud fallback**: `WEB_SYNTH_CLOUD_MODEL` (`deepseek/deepseek-v4-flash`) via
   `cheap_llm.py` — fires only when local Ollama is down.
+- Diagnose live wiring with `web-research status` (probes services + models).
