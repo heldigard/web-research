@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
+from web_research.shared.config import get_settings
 from web_research.shared.http import debug, warn
 
 from . import backends  # noqa: F401 — re-exported so ``wr.search.backends.<x>`` works for tests
@@ -36,6 +37,13 @@ from .backends import (
 from .backends.base import SearchBackend
 
 _TRACKING = tracking_params()
+
+# Free engines first (always available); paid only when API keys are set.
+# Escalation fills the gap the skill docs already promise: when the primary
+# engine is down/empty, controllers still get results without re-invoking
+# with a different --engine.
+_FREE_ENGINES: tuple[str, ...] = ("searxng", "duckduckgo")
+_PAID_ENGINES: tuple[str, ...] = ("minimax", "zai")
 
 
 def _unique_queries(query: str, queries: list[str] | None = None) -> list[str]:
@@ -122,6 +130,93 @@ def search_backends(  # vs-soft-allow  — CLI-arg passthrough
     return out[:num]
 
 
+def _paid_engines_available() -> list[str]:
+    """Return paid engines whose API keys are configured (order fixed)."""
+    settings = get_settings()
+    available: list[str] = []
+    if settings.minimax_api_key:
+        available.append("minimax")
+    if settings.zai_api_key:
+        available.append("zai")
+    return available
+
+
+def escalation_chain(primary: str) -> list[str]:
+    """Ordered engine list for empty-primary recovery.
+
+    Always starts with ``primary``. Free engines that were not the primary
+    come next (so a dead SearXNG escalates to DuckDuckGo before burning paid
+    quota). Paid engines with configured keys close the chain. Paid primaries
+    already merge SearXNG breadth inside :func:`_search_one_query`; if that
+    still returns empty we try DuckDuckGo then the other paid engine.
+    """
+    chain: list[str] = [primary]
+    seen = {primary}
+    for eng in _FREE_ENGINES:
+        if eng not in seen:
+            chain.append(eng)
+            seen.add(eng)
+    for eng in _paid_engines_available():
+        if eng not in seen:
+            chain.append(eng)
+            seen.add(eng)
+    return chain
+
+
+def search_with_escalation(  # vs-soft-allow  — CLI-arg passthrough mirrors search_backends
+    query: str,
+    num: int,
+    engine: str,
+    cat: str,
+    lang: str,
+    time_range: str,
+    queries: list[str] | None = None,
+) -> tuple[list[dict], dict]:
+    """Search with free→paid engine cascade when the primary returns empty.
+
+    Controllers often default to ``--engine searxng``. When that instance is
+    down or returns zero hits, re-issuing the same query with another engine
+    is pure agent overhead. This helper tries the escalation chain once and
+    reports which engines ran so skills/JSON envelopes can surface it.
+
+    Returns ``(results, meta)`` where ``meta`` has:
+      - ``engine_requested``: the original ``engine`` arg
+      - ``engine_used``: the engine that produced hits (or last tried)
+      - ``engines_tried``: full list attempted
+      - ``escalated``: True when a non-primary engine supplied the hits
+    """
+    chain = escalation_chain(engine)
+    tried: list[str] = []
+    last_engine = engine
+    for eng in chain:
+        tried.append(eng)
+        last_engine = eng
+        results = search_backends(query, num, eng, cat, lang, time_range, queries=queries)
+        if results:
+            escalated = eng != engine
+            if escalated:
+                warn(
+                    "search",
+                    f"primary engine '{engine}' empty; escalated to '{eng}' "
+                    f"(tried: {', '.join(tried)})",
+                )
+            meta = {
+                "engine_requested": engine,
+                "engine_used": eng,
+                "engines_tried": tried,
+                "escalated": escalated,
+            }
+            debug("search", f"escalation done used={eng} tried={tried}")
+            return results, meta
+    meta = {
+        "engine_requested": engine,
+        "engine_used": last_engine,
+        "engines_tried": tried,
+        "escalated": False,
+    }
+    return [], meta
+
+
 def _absorb_dedup(
     batch: list[dict],
     out: list[dict],
@@ -174,7 +269,9 @@ def zai_search(query: str, num: int, recency: str = "noLimit") -> list[dict]:
 
 # Re-exported for downstream callers that imported them via this module.
 __all__ = [
+    "escalation_chain",
     "search_backends",
+    "search_with_escalation",
     "searxng_search",
     "minimax_search",
     "zai_search",

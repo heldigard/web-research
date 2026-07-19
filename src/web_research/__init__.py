@@ -28,15 +28,28 @@ from .features.intelligence.engine import (
     query_profile,
     search_queries,
 )
-from .features.ranking.engine import rerank_results, source_quality_score
+from .features.ranking.engine import (
+    parse_result_date,
+    recency_score,
+    rerank_results,
+    select_with_recency_diversity,
+    source_quality_score,
+)
 
 # Module aliases for historic patch targets (wr.search / wr.reader / wr.synthesis).
 from .features.read import engine as reader  # noqa: E402,F401
 from .features.read.engine import firecrawl_scrape, scrape_with_fallback, zai_reader
 from .features.search import engine as search  # noqa: E402,F401
-from .features.search.engine import minimax_search, search_backends, searxng_search, zai_search
+from .features.search.engine import (
+    escalation_chain,
+    minimax_search,
+    search_backends,
+    search_with_escalation,
+    searxng_search,
+    zai_search,
+)
 from .features.synthesis import engine as synthesis  # noqa: E402,F401
-from .features.synthesis.engine import synthesize
+from .features.synthesis.engine import ground_structured_facts, synthesize
 from .shared.formatters import fmt_results, fmt_smart_results
 
 __all__ = [
@@ -48,15 +61,21 @@ __all__ = [
     "focused_extract",
     "query_profile",
     "search_queries",
+    "parse_result_date",
+    "recency_score",
     "rerank_results",
+    "select_with_recency_diversity",
     "source_quality_score",
     "firecrawl_scrape",
     "scrape_with_fallback",
     "zai_reader",
+    "escalation_chain",
     "minimax_search",
     "search_backends",
+    "search_with_escalation",
     "searxng_search",
     "zai_search",
+    "ground_structured_facts",
     "synthesize",
     # module aliases (historic flat names)
     "search",

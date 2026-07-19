@@ -1,4 +1,5 @@
 """Tests for cache roundtrip, variants, and TTL. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -45,7 +46,6 @@ class CacheTests(unittest.TestCase):
         self.assertIsNone(cache.get("test", {"missing": True}))
 
 
-
 class CacheVariantTests(unittest.TestCase):
     """Options that alter fetched/ranked artifacts must not share cache entries."""
 
@@ -57,18 +57,25 @@ class CacheVariantTests(unittest.TestCase):
         _config.reload_settings()
 
     @patch("web_research.features.search.command.rerank_results")
-    @patch("web_research.features.search.command.search_backends")
-    def test_search_cache_separates_rerank_mode(self, search_backends, rerank_results):
-        search_backends.return_value = [
-            {"title": "T", "url": "https://x", "content": "c", "source": "test"}
-        ]
-        rerank_results.side_effect = lambda _query, results: results
+    @patch("web_research.features.search.command.search_with_escalation")
+    def test_search_cache_separates_rerank_mode(self, search_with_escalation, rerank_results):
+        meta = {
+            "engine_requested": "searxng",
+            "engine_used": "searxng",
+            "engines_tried": ["searxng"],
+            "escalated": False,
+        }
+        search_with_escalation.return_value = (
+            [{"title": "T", "url": "https://x", "content": "c", "source": "test"}],
+            meta,
+        )
+        rerank_results.side_effect = lambda _query, results, **_kw: results
 
         with redirect_stdout(io.StringIO()):
             self.assertEqual(wr.main(["search", "cache-key", "--rerank"]), 0)
             self.assertEqual(wr.main(["search", "cache-key"]), 0)
 
-        self.assertEqual(search_backends.call_count, 2)
+        self.assertEqual(search_with_escalation.call_count, 2)
 
     @patch("web_research.features.read.command.read_with_fallback")
     def test_read_cache_separates_robots_policy(self, read_with_fallback):
@@ -91,7 +98,6 @@ class CacheVariantTests(unittest.TestCase):
             self.assertEqual(wr.main(["read", "https://example.com", "--zai-timeout", "60"]), 0)
 
         self.assertEqual(read_with_fallback.call_count, 2)
-
 
 
 class CacheTTLTests(unittest.TestCase):
@@ -118,4 +124,3 @@ class CacheTTLTests(unittest.TestCase):
         with patch("web_research.shared.cache.os.utime") as touch:
             self.assertIsNone(cache.get("ttl", {"k": "v"}))
         touch.assert_not_called()
-

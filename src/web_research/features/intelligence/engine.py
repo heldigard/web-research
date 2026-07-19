@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC
 
 from web_research.shared.json_utils import extract_json_object
@@ -16,6 +17,25 @@ _HEURISTIC_TOP_PARAGRAPHS = 4  # top-N paragraphs in deterministic fallback
 _HEURISTIC_FALLBACK_CHARS = 1200  # first N chars when heuristic finds nothing
 _VALID_INTENTS = frozenset({"general", "troubleshooting", "docs", "comparison", "news"})
 _VALID_FORMATS = frozenset({"snippet", "paragraph", "table", "step_list"})
+
+
+def _has_any(text: str, words: tuple[str, ...] | list[str]) -> bool:
+    """True if any whole word/phrase appears in ``text`` (not bare substrings).
+
+    Prevents ``"api" in "fastapi"`` false positives that mis-classify
+    comparison queries as docs.
+    """
+    for word in words:
+        word = word.strip().lower()
+        if not word:
+            continue
+        if " " in word:
+            if word in text:
+                return True
+            continue
+        if re.search(rf"(?<![a-z0-9_]){re.escape(word)}(?![a-z0-9_])", text):
+            return True
+    return False
 
 
 def _string_list(value: object, fallback: object, *, allow_empty: bool = False) -> list[str]:
@@ -59,6 +79,72 @@ def _today() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
+def _docs_preferred_sites(query_lower: str) -> list[str]:
+    """Pick docs-oriented site filters from cheap language hints in the query."""
+    sites = ["site:stackoverflow.com", "site:github.com"]
+    if _has_any(query_lower, ("python", "django", "flask", "fastapi", "pytest")):
+        sites.insert(0, "site:docs.python.org")
+    if _has_any(query_lower, ("javascript", "typescript", "node", "react", "css", "html")):
+        sites.insert(0, "site:developer.mozilla.org")
+    if _has_any(query_lower, ("rust", "cargo", "crate")):
+        sites.insert(0, "site:doc.rust-lang.org")
+    if _has_any(query_lower, ("golang", "go")):
+        sites.insert(0, "site:pkg.go.dev")
+    if _has_any(query_lower, ("java", "spring", "jvm", "kotlin")):
+        sites.insert(0, "site:docs.oracle.com")
+    # De-dupe while preserving order; cap so search fan-out stays small.
+    out: list[str] = []
+    seen: set[str] = set()
+    for s in sites:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out[:4]
+
+
+def _looks_like_product_news(query_lower: str) -> bool:
+    """Heuristic: AI model / vendor product windows need fresh sources.
+
+    Controllers often ask ``"Fable 5 Anthropic"`` without the word "news". That
+    query is *about a live product window*, not evergreen API docs — without
+    this, ranking treats July 7 and July 19 extension stories as evergreen
+    and the older headline can win.
+
+    Kept narrow on purpose: bare ``google 3`` / ``meta 2`` must not flip to
+    news (too many false positives). Prefer explicit model/vendor tokens.
+    """
+    # Direct model families (version optional)
+    if _has_any(
+        query_lower,
+        (
+            "claude",
+            "gpt",
+            "gemini",
+            "llama",
+            "grok",
+            "fable",
+            "mythos",
+            "sonnet",
+            "opus",
+            "haiku",
+            "chatgpt",
+            "o1",
+            "o3",
+            "o4",
+        ),
+    ):
+        return True
+    # Vendor + version/codename (avoid "google chrome 3" style FPs: require
+    # an AI-ish companion token, not just any digit).
+    if _has_any(query_lower, ("anthropic", "openai", "mistral", "xai", "deepseek")):
+        if _has_any(
+            query_lower,
+            ("model", "release", "preview", "beta", "api", "checkpoint", "weights"),
+        ) or re.search(r"\b(v?\d+(?:\.\d+)*)\b", query_lower):
+            return True
+    return False
+
+
 def query_profile(query: str) -> dict:
     """Classify a query so the engine can pick the best backend and format.
 
@@ -75,25 +161,130 @@ def query_profile(query: str) -> dict:
     }
 
     # Fast rule-based override first (cheap, deterministic).
-    if any(w in q for w in ("error", "exception", "traceback", "failed", "bug")):
+    # EN + ES triggers: controllers in this ecosystem often query in Spanish.
+    # Comparison is checked before docs so "fastapi vs django" is not stolen
+    # by the substring "api" inside "fastapi".
+    tokens = set(q.split())
+    if _has_any(
+        q,
+        (
+            "error",
+            "exception",
+            "traceback",
+            "failed",
+            "bug",
+            "fallo",
+            "falló",
+            "falla",
+            "traza",
+            "excepción",
+            "excepcion",
+            "rompe",
+            "crash",
+        ),
+    ):
         default["intent"] = "troubleshooting"
         default["needs_recency"] = True
         default["preferred_sites"] = ["site:stackoverflow.com", "site:github.com"]
         default["expected_format"] = "step_list"
-    elif any(w in q for w in ("docs", "api", "reference", "function", "method")):
-        default["intent"] = "docs"
-        default["preferred_sites"] = [
-            "site:docs.python.org",
-            "site:developer.mozilla.org",
-        ]
-        default["expected_format"] = "paragraph"
-    elif {"vs", "versus", "compare", "difference", "mejor", "better"} & set(q.split()):
+    elif tokens & {
+        "vs",
+        "versus",
+        "compare",
+        "comparison",
+        "difference",
+        "differences",
+        "mejor",
+        "better",
+        "comparar",
+        "comparación",
+        "comparacion",
+        "diferencia",
+        "diferencias",
+        "contra",
+    }:
         default["intent"] = "comparison"
         default["expected_format"] = "table"
-    elif any(w in q for w in ("latest", "news", "release", "announced", "2025", "2026")):
+    elif _has_any(
+        q,
+        (
+            "docs",
+            "api",
+            "reference",
+            "function",
+            "method",
+            "documentación",
+            "documentacion",
+            "referencia",
+            "función",
+            "funcion",
+            "método",
+            "metodo",
+        ),
+    ):
+        default["intent"] = "docs"
+        default["preferred_sites"] = _docs_preferred_sites(q)
+        default["expected_format"] = "paragraph"
+    elif _has_any(
+        q,
+        (
+            "latest",
+            "news",
+            "release",
+            "announced",
+            "2025",
+            "2026",
+            "últimas",
+            "ultimas",
+            "noticias",
+            "reciente",
+            "recientes",
+            "novedades",
+            "lanzamiento",
+            "changelog",
+            # Availability / window / extension queries — these go stale fast
+            # (e.g. "Fable 5 extends to July 19" superseding a July 7 note).
+            "extends",
+            "extended",
+            "extension",
+            "deadline",
+            "until",
+            "cutoff",
+            "redeploy",
+            "redeploying",
+            "available until",
+            "free window",
+            "prórroga",
+            "prorroga",
+            "hasta cuándo",
+            "hasta cuando",
+            "disponible",
+            "disponibilidad",
+        ),
+    ):
         default["intent"] = "news"
         default["needs_recency"] = True
         default["expected_format"] = "paragraph"
+    elif _looks_like_product_news(q):
+        # "claude fable 5", "gpt-5 release status" without explicit "news"
+        # still need fresh sources — product windows move under our feet.
+        default["intent"] = "news"
+        default["needs_recency"] = True
+        default["expected_format"] = "paragraph"
+    elif _has_any(
+        q,
+        (
+            "how to",
+            "howto",
+            "how do i",
+            "cómo",
+            "como",
+            "paso a paso",
+            "tutorial",
+        ),
+    ):
+        default["intent"] = "troubleshooting"  # procedural → step_list
+        default["expected_format"] = "step_list"
 
     if not is_alive():
         return default
@@ -101,13 +292,23 @@ def query_profile(query: str) -> dict:
     system = (
         "You are a query classifier. Reply ONLY with compact JSON. "
         "Fields: intent, needs_recency (bool), preferred_sites (list of site:...), "
-        "expected_format (one of snippet/paragraph/table/step_list), expand_queries (list)."
+        "expected_format (one of snippet/paragraph/table/step_list), expand_queries (list). "
+        "Set needs_recency=true for product availability windows, model launches, "
+        "deadlines, extensions, and anything that goes stale within days."
     )
     prompt = f"Query: {query}\nToday: {_today()}\nReturn a JSON object with the fields above."
     raw = generate(prompt, system=system, temperature=0.0)
     if not raw:
         return default
-    return _normalize_profile(extract_json_object(raw), default)
+    profile = _normalize_profile(extract_json_object(raw), default)
+    # Heuristic floor: rule-based recency/news must not be downgraded by a
+    # casual LLM classification (the Fable-5 evergreen mis-tag). The model may
+    # still *raise* recency or refine expand_queries / preferred_sites.
+    if default.get("needs_recency"):
+        profile["needs_recency"] = True
+    if default.get("intent") == "news" and profile.get("intent") == "general":
+        profile["intent"] = "news"
+    return profile
 
 
 def expand_queries(query: str, profile: dict | None = None) -> list[str]:

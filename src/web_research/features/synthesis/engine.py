@@ -119,8 +119,13 @@ def synthesize(
     context = "\n\n---\n\n".join(ctx_parts)
 
     base_system = (
-        "You are a precise research analyst. Be factual, cite sources, no filler. "
-        "Use only the provided sources."
+        "You are a precise research analyst for LLM controller agents. "
+        "Be factual, cite sources, no filler. Use ONLY the provided sources. "
+        "Never invent URLs, versions, dates, or claims not supported by a source. "
+        "If evidence is thin, say what is unknown rather than guessing. "
+        "When sources disagree on dates, deadlines, availability windows, or version "
+        "status, build an explicit timeline and treat the most recent dated source as "
+        "authoritative unless an official primary source contradicts it."
     )
 
     if structured:
@@ -129,19 +134,31 @@ def synthesize(
             '{"answer": "...", "facts": [{"claim": "...", "source": n, "confidence": "high|medium|low"}], '
             '"contradictions": [{"claim_a": "...", "claim_b": "...", "sources": [n, m]}], '
             '"unknowns": ["..."], "recommended_next_search": "..."}\n'
-            "Confidence rules: high=official docs/multiple agreeing sources, "
-            "medium=single reputable source, low=unclear/conflicting."
+            "Rules:\n"
+            "- Every fact.claim MUST be directly supported by the numbered source body; "
+            "source is the 1-based index of that source.\n"
+            "- Confidence: high=official docs or ≥2 agreeing sources; "
+            "medium=single reputable source; low=unclear/conflicting/inferred.\n"
+            "- If sources mention different dates/deadlines for the same event "
+            "(e.g. 'until July 12' vs 'until July 19'), put both in contradictions "
+            "or facts with dates, and state the latest date in answer.\n"
+            "- Put open questions in unknowns; put a concrete follow-up query in "
+            "recommended_next_search when gaps remain."
         )
     elif answer_mode:
         style = (
             "Answer the user's question directly and concisely using ONLY the sources. "
-            "Cite as [n] matching source numbers. If sources are insufficient, say so."
+            "Cite as [n] matching source numbers. Prefer short, decision-ready answers. "
+            "If sources give conflicting dates/deadlines, list the timeline and use the "
+            "most recent date. If sources are insufficient, say so and list what is missing."
         )
     else:
         style = (
             "Write a concise, well-organized synthesis of the sources answering the research query. "
             "Use bullet points and cite facts as [n] matching source numbers. "
-            "Ignore marketing fluff. Note contradictions. "
+            "Ignore marketing fluff. Note contradictions and gaps explicitly. "
+            "When dates or availability windows conflict across sources, open with a short "
+            "timeline (oldest → newest) and state which date is current. "
             "Do NOT include a Sources section at the end; it will be appended automatically."
         )
 
@@ -167,7 +184,7 @@ def synthesize(
         if cached:
             return cached["answer"]
 
-    result = _run_synth_chain(prompt, base_system, structured, settings)
+    result = _run_synth_chain(prompt, base_system, structured, settings, docs=docs)
 
     if result and not no_cache:
         cache_set("synth", cache_params, {"answer": result}, engine_tag=settings.ollama_synth_model)
@@ -175,13 +192,18 @@ def synthesize(
 
 
 def _run_synth_chain(
-    prompt: str, base_system: str, structured: bool, settings: Settings
+    prompt: str,
+    base_system: str,
+    structured: bool,
+    settings: Settings,
+    docs: list[dict] | None = None,
 ) -> str | None:
     """Run the local→fallback→cloud backend chain, return the formatted answer.
 
     Each backend's output is post-processed via :func:`_format_answer` so the
     caller (and the cache) always stores the rendered form. The chain order is
-    documented at the call site (PRIMARY → FALLBACK → cloud).
+    documented at the call site (PRIMARY → FALLBACK → cloud). Structured
+    answers are citation-grounded against ``docs`` before rendering.
     """
     local_attempts: list[tuple[str, str]] = [
         (settings.ollama_synth_model, "ollama"),
@@ -193,10 +215,10 @@ def _run_synth_chain(
         fn = partial(_synthesize_local, model=model)
         answer = _try_synthesize(fn, label, prompt, base_system)
         if answer:
-            return _format_answer(answer, structured)
+            return _format_answer(answer, structured, docs=docs)
     cloud_fn = partial(_synthesize_cloud, structured=structured)
     answer = _try_synthesize(cloud_fn, "cloud", prompt, base_system)
-    return _format_answer(answer, structured) if answer else None
+    return _format_answer(answer, structured, docs=docs) if answer else None
 
 
 def _compact_source_text(text: str, max_chars: int) -> str:
@@ -223,18 +245,168 @@ def _try_synthesize(fn, label: str, prompt: str, system: str) -> str | None:
         return None
 
 
-def _format_answer(answer: str, structured: bool) -> str | None:
+def _format_answer(answer: str, structured: bool, docs: list[dict] | None = None) -> str | None:
     """Render a structured answer or return the prose answer as-is."""
     if structured:
-        return _render_structured(answer)
+        return _render_structured(answer, docs=docs)
     return answer
 
 
-def _render_structured(answer: str) -> str:
+# Content tokens used for lightweight claim↔source grounding. Small stopword
+# set keeps false negatives low without depending on ranking.engine.
+_GROUND_STOP: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "with",
+        "by",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "as",
+        "at",
+        "from",
+        "that",
+        "this",
+        "it",
+        "its",
+        "el",
+        "la",
+        "los",
+        "las",
+        "de",
+        "del",
+        "en",
+        "un",
+        "una",
+        "y",
+        "o",
+        "que",
+        "por",
+        "con",
+        "para",
+        "se",
+        "es",
+        "al",
+    }
+)
+_GROUND_WORD_RE = re.compile(r"[a-z0-9áéíóúüñ]{2,}", re.IGNORECASE)
+# Fraction of claim content-tokens that must appear in the cited source.
+_GROUND_OVERLAP_MIN = 0.35
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Lowercase content tokens for grounding overlap (stopwords dropped)."""
+    return {
+        tok
+        for tok in _GROUND_WORD_RE.findall(text.lower())
+        if tok not in _GROUND_STOP and not tok.isdigit()
+    }
+
+
+def _source_text(docs: list[dict], index: int) -> str:
+    """Return the best available text for 1-based source index."""
+    if index < 1 or index > len(docs):
+        return ""
+    doc = docs[index - 1]
+    return str(doc.get("extracted") or doc.get("text") or doc.get("content") or "")
+
+
+def _claim_supported(claim: str, source_text: str) -> bool:
+    """True when enough claim content tokens appear in the cited source body."""
+    claim_toks = _content_tokens(claim)
+    if len(claim_toks) < 2:
+        # Too short to judge — do not demote (avoid over-flagging booleans).
+        return True
+    if not source_text:
+        return False
+    src_toks = _content_tokens(source_text)
+    if not src_toks:
+        return False
+    overlap = len(claim_toks & src_toks) / len(claim_toks)
+    return overlap >= _GROUND_OVERLAP_MIN
+
+
+def ground_structured_facts(data: dict, docs: list[dict]) -> dict:
+    """Demote / flag structured facts whose claims lack support in cited sources.
+
+    Controllers trust ``[n]`` citations. Local synthesis models sometimes
+    invent a plausible claim and attach a source number. This pure post-pass
+    checks lexical support and:
+      * sets ``confidence`` to ``low`` when unsupported
+      * sets ``grounding`` to ``supported`` / ``unsupported`` / ``invalid_source``
+      * appends an ``unknowns`` note listing ungrounded claims
+
+    Does not drop claims (agents still see them) — demotion is the honest
+    signal. Mutates and returns ``data``.
+    """
+    if not isinstance(data, dict) or not docs:
+        return data
+
+    facts = data.get("facts")
+    if not isinstance(facts, list) or not facts:
+        return data
+
+    ungrounded: list[str] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        claim = str(fact.get("claim") or "").strip()
+        src = fact.get("source")
+        if not isinstance(src, int):
+            fact["confidence"] = "low"
+            fact["grounding"] = "invalid_source"
+            if claim:
+                ungrounded.append(claim)
+            continue
+        body = _source_text(docs, src)
+        if not body or src < 1 or src > len(docs):
+            fact["confidence"] = "low"
+            fact["grounding"] = "invalid_source"
+            if claim:
+                ungrounded.append(claim)
+            continue
+        if _claim_supported(claim, body):
+            fact.setdefault("grounding", "supported")
+        else:
+            fact["confidence"] = "low"
+            fact["grounding"] = "unsupported"
+            if claim:
+                ungrounded.append(claim)
+
+    if ungrounded:
+        unknowns = data.get("unknowns")
+        if not isinstance(unknowns, list):
+            unknowns = []
+            data["unknowns"] = unknowns
+        note = (
+            f"{len(ungrounded)} claim(s) lack lexical support in the cited source(s) "
+            "and were demoted to low confidence"
+        )
+        if note not in unknowns:
+            unknowns.append(note)
+    return data
+
+
+def _render_structured(answer: str, docs: list[dict] | None = None) -> str:
     """Parse structured JSON (tolerating fences/prose) and render as clean markdown."""
     data = _extract_json_object(answer)
     if data is None:
         return answer
+
+    if docs:
+        data = ground_structured_facts(data, docs)
 
     sections: list[str] = []
     _render_answer(data, sections)
@@ -257,9 +429,14 @@ def _render_facts(data: dict, lines: list[str]) -> None:
         return
     lines.append("### Key facts")
     for f in facts:
+        if not isinstance(f, dict):
+            continue
         src = f.get("source")
         cite = f" [{src}]" if isinstance(src, int) else ""
-        lines.append(f"- ({f.get('confidence', 'medium')}) {f.get('claim', '')}{cite}")
+        conf = f.get("confidence", "medium")
+        grounding = f.get("grounding")
+        flag = " ⚠ ungrounded" if grounding in ("unsupported", "invalid_source") else ""
+        lines.append(f"- ({conf}) {f.get('claim', '')}{cite}{flag}")
     lines.append("")
 
 
@@ -269,6 +446,8 @@ def _render_contradictions(data: dict, lines: list[str]) -> None:
         return
     lines.append("### Contradictions")
     for c in contradictions:
+        if not isinstance(c, dict):
+            continue
         srcs = c.get("sources") or []
         cite = " [" + ", ".join(str(s) for s in srcs) + "]" if srcs else ""
         lines.append(f"- {c.get('claim_a')} vs {c.get('claim_b')}{cite}")

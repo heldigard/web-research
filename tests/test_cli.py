@@ -1,4 +1,5 @@
 """Tests for CLI commands and config flags. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -60,8 +61,16 @@ class CLITests(unittest.TestCase):
             "source": "docs.example.test",
             "publishedDate": "2026-07-08",
         }
+        search_meta = {
+            "engine_requested": "searxng",
+            "engine_used": "searxng",
+            "engines_tried": ["searxng"],
+            "escalated": False,
+        }
         with (
-            patch.object(research_cmd, "search_backends", return_value=[result]),
+            patch.object(
+                research_cmd, "search_with_escalation", return_value=([result], search_meta)
+            ),
             patch.object(research_cmd, "scrape_with_fallback", return_value="scraped evidence"),
             patch.object(research_cmd, "synthesize", return_value="Grounded answer [1]."),
             patch.object(research_cmd, "is_alive", return_value=False),
@@ -75,7 +84,9 @@ class CLITests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["status"], "ok")
         self.assertFalse(payload["cache_hit"])
-        self.assertEqual(payload["scraping"], {"requested": 1, "succeeded": 1})
+        self.assertEqual(payload["scraping"]["requested"], 1)
+        self.assertEqual(payload["scraping"]["succeeded"], 1)
+        self.assertEqual(payload["pipeline"]["search"]["engine_used"], "searxng")
         self.assertEqual(payload["sources"][0]["engine"], "searxng")
         self.assertEqual(payload["sources"][0]["published_date"], "2026-07-08")
         self.assertEqual(payload["evidence"][0]["text"], "scraped evidence")
@@ -94,8 +105,16 @@ class CLITests(unittest.TestCase):
             "source": "docs.example.test",
             "publishedDate": "",
         }
+        search_meta = {
+            "engine_requested": "searxng",
+            "engine_used": "searxng",
+            "engines_tried": ["searxng"],
+            "escalated": False,
+        }
         with (
-            patch.object(research_cmd, "search_backends", return_value=[result]),
+            patch.object(
+                research_cmd, "search_with_escalation", return_value=([result], search_meta)
+            ),
             patch.object(research_cmd, "is_alive", return_value=False),
         ):
             output = io.StringIO()
@@ -105,7 +124,8 @@ class CLITests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(rc, 0)
         self.assertEqual(payload["status"], "partial")
-        self.assertEqual(payload["scraping"], {"requested": 0, "succeeded": 0})
+        self.assertEqual(payload["scraping"]["requested"], 0)
+        self.assertEqual(payload["scraping"]["succeeded"], 0)
         self.assertFalse(payload["sources"][0]["scraped"])
         self.assertEqual(payload["evidence"][0]["text"], "search evidence")
 
@@ -140,14 +160,17 @@ class CLITests(unittest.TestCase):
     @patch("urllib.request.urlopen")
     @patch("ollama_client.is_alive")
     def test_cli_search_does_not_cache_empty_on_failure(self, mock_alive, mock_open):
-        """P0.1: a failed (empty) search must not poison the cache."""
+        """P0.1: a failed (empty) search must not poison the cache.
+
+        Exit code 1 signals no results to controllers (after free→paid cascade).
+        """
         mock_alive.return_value = False
         mock_open.side_effect = urllib.error.URLError("searxng down")
         before = _cache_file_count()
         f = io.StringIO()
         with redirect_stdout(f):
             rc = wr.main(["search", "searxng-down-q", "-n", "3"])
-        self.assertEqual(rc, 0)
+        self.assertEqual(rc, 1)
         self.assertEqual(_cache_file_count(), before)
 
     @patch("urllib.request.urlopen")
@@ -318,7 +341,6 @@ class CLITests(unittest.TestCase):
         self.assertIn("md A", f.getvalue())  # A scraped despite B failure
 
 
-
 class ConfigFlagTests(unittest.TestCase):
     """P3: --timeout/--verbose push into module config."""
 
@@ -347,4 +369,3 @@ class ConfigFlagTests(unittest.TestCase):
             apply_common(Namespace(timeout=None, verbose=False))
             self.assertEqual(_config.TIMEOUT, 17)
             self.assertTrue(_config.VERBOSE)
-

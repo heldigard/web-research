@@ -8,7 +8,11 @@ from __future__ import annotations
 
 
 def strip_internal(results: list[dict]) -> list[dict]:
-    """Drop internal scoring keys (``_v``/``_score``/``_quality``) before output."""
+    """Drop internal scoring keys before JSON output.
+
+    Keeps ``_pub_date`` when present — controllers use it for recency audits
+    (it is derived, not a raw model vector).
+    """
     for r in results:
         for k in ("_v", "_score", "_quality"):
             r.pop(k, None)
