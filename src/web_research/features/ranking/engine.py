@@ -308,10 +308,10 @@ def select_with_recency_diversity(
     pool = results[: min(len(results), max(k * 2, k))]
     selected = list(results[:k])
     dated = [(parse_result_date(r), r) for r in pool]
-    dated = [(d, r) for d, r in dated if d is not None]
-    if not dated:
+    known_dated = [(d, r) for d, r in dated if d is not None]
+    if not known_dated:
         return selected
-    newest_date, newest = max(dated, key=lambda item: item[0])
+    _, newest = max(known_dated, key=lambda item: item[0])
     if any(r is newest or r.get("url") == newest.get("url") for r in selected):
         return selected
     # Replace the lowest-ranked selected item with the newest candidate.

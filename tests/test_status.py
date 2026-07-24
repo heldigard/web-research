@@ -57,6 +57,10 @@ class StatusTests(unittest.TestCase):
         self.assertTrue(payload["overall_ok"])
         for name in ("searxng", "firecrawl", "ollama"):
             self.assertTrue(payload["services"][name]["ok"], name)
+        self.assertFalse(payload["cloud_fallback"]["enabled_by_default"])
+        self.assertEqual(
+            payload["cloud_fallback"]["opt_in_flag"], "--allow-cloud-fallback"
+        )
         # Verbose installed model list must not leak into the service entry.
         self.assertNotIn("models", payload["services"]["ollama"])
 
@@ -125,4 +129,3 @@ class StatusTests(unittest.TestCase):
                 rc = mode_status(args)
         self.assertEqual(rc, 0)
         self.assertIn("ALL SERVICES OK", buf.getvalue())
-

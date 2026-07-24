@@ -345,6 +345,7 @@ def mode_research(args: argparse.Namespace) -> int:
             answer_mode=args.answer,
             structured=args.smart,
             no_cache=args.no_cache,
+            allow_cloud_fallback=getattr(args, "allow_cloud_fallback", False),
         )
         if docs
         else {"answer": None, "structured": None}
@@ -373,6 +374,7 @@ def mode_research(args: argparse.Namespace) -> int:
                 answer_mode=args.answer,
                 structured=args.smart,
                 no_cache=True,  # evidence set changed
+                allow_cloud_fallback=getattr(args, "allow_cloud_fallback", False),
             )
             answer = synth.get("answer")
             structured = synth.get("structured")

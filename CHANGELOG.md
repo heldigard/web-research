@@ -6,6 +6,14 @@ that constraint.
 
 ## [Unreleased] — 2026-07-19
 
+### Subscription-first cloud boundary (2026-07-21)
+
+- PAYG synthesis through `cheap_llm.py` is disabled by default for both
+  `search --summary` and `research`; callers must pass
+  `--allow-cloud-fallback` after both local Ollama models fail.
+- Capabilities, cache keys, status output, and documentation now expose the
+  opt-in boundary explicitly.
+
 ### Multi-hop follow-up + retrieval eval (2026-07-19)
 
 - **Single follow-up hop** (`research --smart`): after structured synthesis,

@@ -82,6 +82,10 @@ class SearchTests(unittest.TestCase):
             {"flag": "--time", "values": ["day", "week", "month", "year"]},
         )
         self.assertEqual(
+            by_name["search"]["options"]["cloud_fallback"],
+            {"flag": "--allow-cloud-fallback", "default": False, "lane": "payg"},
+        )
+        self.assertEqual(
             by_name["read"]["options"],
             {
                 "cache": {"flag": "--no-cache", "default": False, "effect": "bypass_disk_cache"},
@@ -114,12 +118,34 @@ class SearchTests(unittest.TestCase):
             {"default": "enforce", "bypass_flag": "--no-robots"},
         )
         self.assertEqual(
+            by_name["research"]["options"]["cloud_fallback"],
+            {"flag": "--allow-cloud-fallback", "default": False, "lane": "payg"},
+        )
+        self.assertEqual(
             by_name["research"]["options"]["verbose"], {"flag": "--verbose", "default": False}
         )
         self.assertEqual(
-            by_name["research"]["options"]["count"], {"flag": "-n", "type": "integer", "default": 6}
+            by_name["research"]["options"]["count"],
+            {"flag": "-n", "type": "integer", "default": 6},
         )
         self.assertEqual(buf.getvalue().count("\n"), 1, "router manifest stays compact")
+
+    def test_cloud_synthesis_fallback_is_disabled_by_default(self):
+        parser = build_parser(
+            {
+                "search": _noop_handler,
+                "research": _noop_handler,
+                "read": _noop_handler,
+                "status": _noop_handler,
+                "capabilities": _noop_handler,
+            }
+        )
+
+        self.assertFalse(parser.parse_args(["search", "q", "--summary"]).allow_cloud_fallback)
+        self.assertFalse(parser.parse_args(["research", "q"]).allow_cloud_fallback)
+        self.assertTrue(
+            parser.parse_args(["research", "q", "--allow-cloud-fallback"]).allow_cloud_fallback
+        )
 
     @patch("urllib.request.urlopen")
     def test_searxng_search(self, mock_open):
@@ -245,4 +271,3 @@ class SearchTests(unittest.TestCase):
             "q", num=3, engine="searxng", cat="general", lang="en", time_range=""
         )
         self.assertEqual(len(res), 1)
-

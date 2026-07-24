@@ -55,7 +55,11 @@ def _render_keys(keys: dict) -> list[str]:
 
 def _render_cloud(cloud: dict) -> list[str]:
     state = "available" if cloud["available"] else "absent (cheap_llm.py not on path)"
-    return [f"## Cloud fallback\n- {state} · model: {cloud['model']}\n"]
+    policy = "disabled by default" if not cloud["enabled_by_default"] else "enabled by default"
+    return [
+        f"## Cloud fallback\n- {state} · {policy} · opt in: {cloud['opt_in_flag']} "
+        f"· model: {cloud['model']}\n"
+    ]
 
 
 def _render_cache(cache: dict) -> list[str]:

@@ -27,7 +27,7 @@ src/web_research/
     │   └── command.py              # orchestrates search → scrape → synth
     ├── ranking/engine.py           # rerank + source-quality scoring
     ├── intelligence/engine.py      # query profile, expansion, focused extract
-    └── synthesis/engine.py         # cited synthesis (Ollama local + cheap cloud)
+    └── synthesis/engine.py         # cited synthesis (Ollama + opt-in cheap cloud)
 
 shared/
 ├── config.py             # typed Settings (frozen dataclass) + env loader

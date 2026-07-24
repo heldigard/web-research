@@ -11,8 +11,9 @@ its own vertical-slice project, mirroring the `codeq` / `smart-trim` /
 
 The engine behind the ecosystem's **local-first web/research stack** (the "Web"
 tier of the cross-CLI MCP priority): skill `web-search` → this engine
-(SearXNG local → MiniMax/Z.AI direct APIs → Ollama rerank → `cheap_llm.py`
-cloud cascade). The 11 web/search skills are thin routers; this is the engine.
+(SearXNG local → MiniMax/Z.AI direct APIs → Ollama rerank → explicitly opt-in
+`cheap_llm.py` cloud cascade). The 11 web/search skills are thin routers; this
+is the engine.
 
 ## Architecture: vertical-slice CLI package
 
@@ -27,7 +28,7 @@ src/web_research/
     research/  command.py (mode_research — orchestrates search+rank+read+synth)
     ranking/   engine.py (rerank_results, source_quality_score)
     intelligence/ engine.py (query_profile, expand_queries, focused_extract)
-    synthesis/ engine.py (synthesize, _render_structured; cheap_llm fallback)
+    synthesis/ engine.py (synthesize, _render_structured; opt-in cheap_llm fallback)
 ```
 
 One responsibility per feature folder (cohesion > size). Engine modules are
@@ -50,23 +51,25 @@ per CLI mode).
 ```
 web-research search  <query> [-n 8] [--engine searxng|zai|minimax|duckduckgo]
                              [--cat general] [--lang en] [--time day|week|month|year]
-                             [--rerank] [--smart] [--summary] [--json]
+                             [--rerank] [--smart] [--summary]
+                             [--allow-cloud-fallback] [--json]
 web-research read    <url>   [--engine firecrawl|zai|html] [--no-robots]
                              [--max-chars N] [--wait N] [--zai-timeout N]
 web-research research <query> [-n 6] [--scrape 3]
                              [--engine searxng|zai|minimax|duckduckgo] [--time ...]
                              [--answer] [--smart] [--max-chars N] [--no-robots]
-                             [--code-analyze] [--json]
+                             [--allow-cloud-fallback] [--code-analyze] [--json]
 web-research status        # probe SearXNG/Firecrawl/Ollama + models/keys/cache
 web-research capabilities  # machine-readable router contract; no network probes
 
 Common: --no-cache --timeout N --verbose
 ```
 
-Controller resilience (automatic, no flags): empty primary engine escalates
-free→paid; top-K scrape failures slide to later hits; structured synthesis
-grounds claims against cited source text (`--smart`); one follow-up hop from
-`recommended_next_search` unless `--no-follow-up`.
+Controller resilience: empty primary search engine escalates free→subscription;
+top-K scrape failures slide to later hits; structured synthesis grounds claims
+against cited source text (`--smart`); one follow-up hop comes from
+`recommended_next_search` unless `--no-follow-up`. PAYG synthesis is never
+automatic and requires `--allow-cloud-fallback`.
 
 ## Conventions
 
@@ -96,5 +99,6 @@ grounds claims against cited source text (`--smart`); one follow-up hop from
   synthesis; `OLLAMA_SYNTH_FALLBACK_MODEL` for the local secondary when primary
   fails; `OLLAMA_EMBED` (`embeddinggemma`) for semantic rerank.
 - **Cloud fallback**: `WEB_SYNTH_CLOUD_MODEL` (`deepseek/deepseek-v4-flash`) via
-  `cheap_llm.py` — fires only when local Ollama is down.
+  `cheap_llm.py` — fires only when both local Ollama models fail and the caller
+  supplied `--allow-cloud-fallback`.
 - Diagnose live wiring with `web-research status` (probes services + models).

@@ -116,5 +116,10 @@ def _emit_search_output(
 
     summary = None
     if args.summary and results:
-        summary = synthesize(args.query, snippets_to_docs(results), structured=True)
+        summary = synthesize(
+            args.query,
+            snippets_to_docs(results),
+            structured=True,
+            allow_cloud_fallback=getattr(args, "allow_cloud_fallback", False),
+        )
     print(fmt_smart_results(results, args.query, profile=profile, summary=summary, meta=meta))

@@ -32,6 +32,11 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
             "rerank": {"flag": "--rerank", "default": False},
             "smart": {"flag": "--smart", "default": False},
             "summary": {"flag": "--summary", "default": False},
+            "cloud_fallback": {
+                "flag": "--allow-cloud-fallback",
+                "default": False,
+                "lane": "payg",
+            },
             "json": {"flag": "--json", "default": False, "structured_output": True},
         },
     },
@@ -99,6 +104,11 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
                     "With --smart, run at most one extra search+scrape hop from "
                     "structured recommended_next_search, then re-synthesize."
                 ),
+            },
+            "cloud_fallback": {
+                "flag": "--allow-cloud-fallback",
+                "default": False,
+                "lane": "payg",
             },
             "json": {"flag": "--json", "default": False, "structured_output": True},
         },

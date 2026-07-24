@@ -41,12 +41,17 @@ class SynthesisTests(unittest.TestCase):
 
     @patch.object(wr.synthesis, "cheap_complete")
     @patch("ollama_client.is_alive")
-    def test_synthesize_falls_back_cloud(self, mock_alive, mock_cloud):
+    def test_synthesize_cloud_fallback_requires_explicit_opt_in(self, mock_alive, mock_cloud):
         mock_alive.return_value = False
         mock_cloud.return_value = {"text": "Cloud answer."}
         docs = [{"title": "D", "url": "https://d", "text": "body"}]
-        out = wr.synthesize("q", docs)
+        self.assertIsNone(wr.synthesize("q", docs, no_cache=True))
+        mock_cloud.assert_not_called()
+
+        out = wr.synthesize("q", docs, no_cache=True, allow_cloud_fallback=True)
+
         self.assertEqual(out, "Cloud answer.")
+        mock_cloud.assert_called_once()
 
     @patch("ollama_client.generate")
     @patch("ollama_client.is_alive")
@@ -235,4 +240,3 @@ class RenderStructuredTests(unittest.TestCase):
         self.assertIn("what about X?", out)
         self.assertIn("Suggested next search", out)
         self.assertIn("search for X", out)
-

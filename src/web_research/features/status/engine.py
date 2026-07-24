@@ -149,7 +149,12 @@ def _key_state() -> dict:
 
 def _cloud_fallback_state() -> dict:
     s = get_settings()
-    return {"available": cheap_complete is not None, "model": s.web_synth_cloud_model}
+    return {
+        "available": cheap_complete is not None,
+        "enabled_by_default": False,
+        "opt_in_flag": "--allow-cloud-fallback",
+        "model": s.web_synth_cloud_model,
+    }
 
 
 def _cache_state() -> dict:

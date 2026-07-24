@@ -1,4 +1,4 @@
-"""Synthesis: structured, cited answers via Ollama or cheap cloud fallback."""
+"""Synthesis: cited answers via Ollama with an explicit cloud opt-in."""
 
 from __future__ import annotations
 
@@ -61,7 +61,12 @@ def _synthesize_cloud(prompt: str, system: str, structured: bool = False) -> str
 
 
 def _synth_cache_params(
-    query: str, docs: list[dict], answer_mode: bool, structured: bool, max_ctx: int
+    query: str,
+    docs: list[dict],
+    answer_mode: bool,
+    structured: bool,
+    max_ctx: int,
+    allow_cloud_fallback: bool,
 ) -> dict:
     """Deterministic cache key for a synthesis result.
 
@@ -86,6 +91,7 @@ def _synth_cache_params(
         "answer_mode": answer_mode,
         "structured": structured,
         "max_ctx": max_ctx,
+        "allow_cloud_fallback": allow_cloud_fallback,
     }
 
 
@@ -95,15 +101,21 @@ def synthesize(
     answer_mode: bool = False,
     structured: bool = False,
     no_cache: bool = False,
+    allow_cloud_fallback: bool = False,
 ) -> str | None:
-    """Generate cited synthesis using Ollama, falling back to cheap cloud LLM.
+    """Generate cited synthesis locally; use cloud only after explicit opt-in.
 
     Back-compat wrapper over :func:`synthesize_result` (returns only the
     rendered answer string). Prefer ``synthesize_result`` when the caller
     needs structured fields such as ``recommended_next_search`` for multi-hop.
     """
     return synthesize_result(
-        query, docs, answer_mode=answer_mode, structured=structured, no_cache=no_cache
+        query,
+        docs,
+        answer_mode=answer_mode,
+        structured=structured,
+        no_cache=no_cache,
+        allow_cloud_fallback=allow_cloud_fallback,
     )["answer"]
 
 
@@ -113,6 +125,7 @@ def synthesize_result(
     answer_mode: bool = False,
     structured: bool = False,
     no_cache: bool = False,
+    allow_cloud_fallback: bool = False,
 ) -> dict:
     """Like :func:`synthesize` but also returns structured meta when available.
 
@@ -186,11 +199,17 @@ def synthesize_result(
 
     prompt = f"QUERY: {query}\n\nSOURCES:\n{context}\n\n{style}"
 
-    # Synthesis backend chain: local Ollama (PRIMARY → FALLBACK) → cloud.
+    # Synthesis backend chain: local Ollama (PRIMARY → FALLBACK); cloud is
+    # available only after explicit caller opt-in.
     settings = get_settings()
 
     cache_params = _synth_cache_params(
-        query, docs, answer_mode, structured, WEB_SYNTH_MAX_CONTEXT_CHARS
+        query,
+        docs,
+        answer_mode,
+        structured,
+        WEB_SYNTH_MAX_CONTEXT_CHARS,
+        allow_cloud_fallback,
     )
     if not no_cache:
         cached = cache_get("synth", cache_params, engine_tag=settings.ollama_synth_model)
@@ -200,7 +219,14 @@ def synthesize_result(
                 "structured": cached.get("structured"),
             }
 
-    answer, structured_data = _run_synth_chain(prompt, base_system, structured, settings, docs=docs)
+    answer, structured_data = _run_synth_chain(
+        prompt,
+        base_system,
+        structured,
+        settings,
+        docs=docs,
+        allow_cloud_fallback=allow_cloud_fallback,
+    )
 
     if answer and not no_cache:
         cache_set(
@@ -218,8 +244,9 @@ def _run_synth_chain(
     structured: bool,
     settings: Settings,
     docs: list[dict] | None = None,
+    allow_cloud_fallback: bool = False,
 ) -> tuple[str | None, dict | None]:
-    """Run the local→fallback→cloud backend chain.
+    """Run the local chain, adding cloud only after explicit caller opt-in.
 
     Returns ``(rendered_answer, structured_data)``. Structured data is only
     populated when ``structured=True`` and JSON parsed cleanly.
@@ -235,6 +262,8 @@ def _run_synth_chain(
         answer = _try_synthesize(fn, label, prompt, base_system)
         if answer:
             return _format_answer(answer, structured, docs=docs)
+    if not allow_cloud_fallback:
+        return None, None
     cloud_fn = partial(_synthesize_cloud, structured=structured)
     answer = _try_synthesize(cloud_fn, "cloud", prompt, base_system)
     if not answer:

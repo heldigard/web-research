@@ -37,7 +37,7 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     common.add_argument("--verbose", action="store_true", help="emit backend diagnostics to stderr")
 
     p = argparse.ArgumentParser(
-        description="Local web research engine (SearXNG+Firecrawl+Ollama+cloud fallback).",
+        description="Local web research engine (SearXNG+Firecrawl+Ollama+opt-in cloud fallback).",
     )
     p.add_argument("--version", action="version", version=f"web-research {_pkg_version}")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -89,13 +89,18 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
         action="store_true",
         help="smart only: synthesize a structured answer from snippets.",
     )
+    ps.add_argument(
+        "--allow-cloud-fallback",
+        action="store_true",
+        help="opt in to PAYG cloud synthesis only if both local Ollama models fail",
+    )
     ps.add_argument("--json", action="store_true", help="emit results as JSON.")
     ps.set_defaults(func=handlers["search"])
 
     pr = sub.add_parser(
         "research",
         parents=[common],
-        help="Search -> scrape top K -> Ollama/cloud synthesis w/ citations.",
+        help="Search -> scrape top K -> Ollama synthesis (opt-in cloud) w/ citations.",
     )
     pr.add_argument("query")
     pr.add_argument("-n", type=int, default=6, help="search results to pull")
@@ -108,6 +113,11 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
     )
     pr.add_argument("--time", default="")
     pr.add_argument("--answer", action="store_true", help="direct Q&A style instead of report")
+    pr.add_argument(
+        "--allow-cloud-fallback",
+        action="store_true",
+        help="opt in to PAYG cloud synthesis only if both local Ollama models fail",
+    )
     pr.add_argument(
         "--smart",
         action="store_true",
