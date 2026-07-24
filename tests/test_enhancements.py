@@ -22,7 +22,7 @@ import urllib.request
 from email.message import Message
 from pathlib import Path
 from typing import Literal, TextIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import web_research.shared.config as _config
 from web_research.features.intelligence.code_analyze import (
@@ -158,6 +158,14 @@ class HttpRetryTests(unittest.TestCase):
             "http://x", 429, "Slow", _headers(Retry_After="Wed, 21 Oct"), None
         )
         self.assertIsNone(_retry_after_seconds(junk))  # HTTP-date form unsupported
+
+    def test_retry_after_rejects_negative_and_non_finite_values(self) -> None:
+        for raw in ("-1", "nan", "inf", "-inf"):
+            with self.subTest(raw=raw):
+                err = urllib.error.HTTPError(
+                    "http://x", 429, "Slow", _headers(Retry_After=raw), None
+                )
+                self.assertIsNone(_retry_after_seconds(err))
 
     def test_non_http_urls_are_rejected_before_urlopen(self) -> None:
         with patch("urllib.request.urlopen") as mock_open:
@@ -350,6 +358,12 @@ class RobotsTests(unittest.TestCase):
 
         robots.bust_cache()
 
+    def tearDown(self) -> None:
+        from web_research.shared import robots
+
+        robots.bust_cache()
+        _config.reload_settings()
+
     def test_unreachable_robots_allows(self) -> None:
         with patch("urllib.request.urlopen", side_effect=Exception("no net")):
             self.assertTrue(is_allowed("https://example.com/page"))
@@ -357,6 +371,42 @@ class RobotsTests(unittest.TestCase):
     def test_non_absolute_url_rejected(self) -> None:
         self.assertFalse(is_allowed("not-a-url"))
         self.assertFalse(is_allowed("/relative/path"))
+
+    def test_non_http_url_rejected_without_fetch(self) -> None:
+        with patch("web_research.shared.robots.default_client") as client:
+            self.assertFalse(is_allowed("ftp://example.com/page"))
+        client.assert_not_called()
+
+    def test_fetch_uses_shared_client_timeout_and_cache(self) -> None:
+        _config.reload_settings(timeout=7)
+        client = Mock()
+        client.get_bytes.return_value = b"User-agent: *\nDisallow: /private\n"
+
+        with patch("web_research.shared.robots.default_client", return_value=client):
+            self.assertFalse(is_allowed("https://example.com/private"))
+            self.assertTrue(is_allowed("https://example.com/public"))
+
+        client.get_bytes.assert_called_once_with(
+            "https://example.com/robots.txt",
+            timeout=7,
+        )
+
+    def test_http_403_disallows_and_404_allows(self) -> None:
+        for status, expected in ((403, False), (404, True)):
+            with self.subTest(status=status):
+                from web_research.shared import robots
+
+                robots.bust_cache()
+                client = Mock()
+                client.get_bytes.side_effect = urllib.error.HTTPError(
+                    "https://example.com/robots.txt",
+                    status,
+                    "status",
+                    _headers(),
+                    None,
+                )
+                with patch("web_research.shared.robots.default_client", return_value=client):
+                    self.assertEqual(is_allowed("https://example.com/page"), expected)
 
 
 class HtmlReaderTests(unittest.TestCase):

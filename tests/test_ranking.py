@@ -1,4 +1,5 @@
 """Tests for source-quality ranking. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -39,4 +40,3 @@ class RankingTests(unittest.TestCase):
 
     def test_source_quality_empty_url(self):
         self.assertEqual(wr.source_quality_score("", "T", "c"), 0.0)
-

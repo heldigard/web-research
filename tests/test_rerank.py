@@ -1,4 +1,5 @@
 """Tests for rerank ordering. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -47,4 +48,3 @@ class RerankTests(unittest.TestCase):
         ]
         ordered = wr.rerank_results("q", results)
         self.assertEqual(ordered[0]["title"], "second")
-

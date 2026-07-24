@@ -3,6 +3,7 @@
 Runs before any test module is imported so the hermetic env pop happens before
 the web_research settings singleton is built.
 """
+
 import os
 
 # Hermetic: the host shell may export SEARXNG_URL/FC_URL/OLLAMA_URL (e.g.

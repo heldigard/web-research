@@ -28,7 +28,8 @@ research path, with paid synthesis available only by explicit opt-in:
 ```bash
 git clone https://github.com/heldigard/web-research.git
 cd web-research
-uv sync            # or: pip install -e .[test]
+uv sync --locked                  # runtime
+uv sync --extra test --locked     # contributors; or: pip install -e .[test]
 ```
 
 ## Local services (Ubuntu native)
@@ -112,8 +113,23 @@ or reader timeout—are isolated from one another. Use `--no-cache` to bypass
 both reads and writes.
 
 Readers respect `robots.txt` by default and fail open when it cannot be loaded.
+The robots request uses the same configured timeout, retry policy, and user
+agent as the other HTTP paths.
 `--no-robots` is an explicit per-command bypass; content fetched under that
 policy is not reused by a later robots-respecting read.
+
+## Development checks
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src/
+uv run pytest --cov=web_research --cov-fail-under=85
+uv run python -m build
+```
+
+CI runs the tests on every declared Python version (3.11–3.14), then builds and
+smokes the wheel from the locked test toolchain.
 
 ## Ecosystem integration
 
@@ -124,10 +140,12 @@ project. Skills invoke it as
 skills (`web-search`, `search-smart`, `web-reader`, `web-research`, `searxng`,
 `zai-search`, `minimax-search`, …) need no edits when the engine moves.
 
-`cheap_llm.py` (the opt-in cloud cascade) is **not** part of this repo — it stays in
-`~/.claude/scripts/` as shared infrastructure consumed by 8+ other tools. This
-engine loads it optionally via `WEB_RESEARCH_SCRIPTS` (alias `CHEAP_LLM_HOME`; default `~/.claude/scripts`)
-and degrades gracefully when absent.
+`cheap_llm.py` (the opt-in cloud cascade) is **not** part of this repo — it
+stays in `~/.claude/scripts/` as shared infrastructure consumed by other
+tools. This engine locates both harness shims through
+`WEB_RESEARCH_SCRIPTS` (default `~/.claude/scripts`) and degrades gracefully
+when either is absent. `CHEAP_LLM_HOME` is interpreted by the `cheap_llm.py`
+shim itself; it is not an alias for the shared scripts directory.
 
 ## License
 

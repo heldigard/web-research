@@ -61,10 +61,12 @@ own code.
   other 4xx surfaces immediately.
 
 ## Sibling ecosystem scripts (NOT in this repo)
-- `WEB_RESEARCH_SCRIPTS` (alias `CHEAP_LLM_HOME`, default `~/.claude/scripts/`) →
+- `WEB_RESEARCH_SCRIPTS` (default `~/.claude/scripts/`) →
   location of `ollama_client.py` (embed/generate/is_alive, used by
   ranking/intelligence/synthesis) and `cheap_llm.py` (cloud cascade,
   synthesis fallback). Both optional; graceful degrade when absent.
+- `CHEAP_LLM_HOME` is consumed inside the `cheap_llm.py` shim only; it does
+  not replace the shared scripts directory.
 
 ## Cache
 On-disk JSON cache at `WEB_RESEARCH_CACHE_DIR` (default
@@ -129,7 +131,7 @@ Adding a new backend = one file under `backends/<name>.py` + one entry in
 
 ## Commands
 - Install (dev): `uv sync --extra test` (editable install)
-- Test: `uv run python -m pytest tests/ -q` (93 tests, network mocked) ·
+- Test: `uv run python -m pytest tests/ -q` (186 tests, network mocked) ·
   `--cov=web_research --cov-fail-under=85`
 - Lint: `uv run ruff check src tests` · Format: `uv run ruff format --check .`
 - Types: `uv run mypy src/`

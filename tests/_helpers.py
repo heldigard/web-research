@@ -3,6 +3,7 @@
 Extracted verbatim from the former monolithic test_web_research.py so every
 feature-slice test module can import the same fakes and cache utilities.
 """
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -30,12 +31,10 @@ def _clear_cache() -> None:
     _bust_alive_cache()
 
 
-
 def _cache_file_count() -> int:
     """Number of JSON cache files currently on disk."""
     cache_dir = Path(_config.CACHE_DIR or Path.home() / ".cache" / "web-research")
     return len(list(cache_dir.glob("*.json"))) if cache_dir.exists() else 0
-
 
 
 class FakeResponse:
@@ -51,7 +50,6 @@ class FakeResponse:
 
     def __exit__(self, *args):
         return False
-
 
 
 class _FakeHttpClient:
@@ -81,7 +79,6 @@ class _FakeHttpClient:
         return json.loads(self._resolve_bytes(url))
 
 
-
 def _mock_urlopen(response_map: dict):
     def side_effect(req, **_kwargs):
         url = req.full_url
@@ -93,12 +90,9 @@ def _mock_urlopen(response_map: dict):
     return side_effect
 
 
-
 def _noop_handler(_args):
     return 0
 
 
-
 def _ollama_tags(names: list[str]) -> dict:
     return {"models": [{"name": n, "size": 1000} for n in names]}
-

@@ -1,4 +1,5 @@
 """Tests for query profile, focused extract, expand queries. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -142,7 +143,6 @@ class IntelligenceTests(unittest.TestCase):
         self.assertEqual(profile["preferred_sites"], [])
 
 
-
 class QueryProfileRuleTests(unittest.TestCase):
     """query_profile rule-based classification edge cases."""
 
@@ -174,4 +174,3 @@ class QueryProfileRuleTests(unittest.TestCase):
         prof = wr.query_profile("random unrelated topic")
         self.assertEqual(prof["intent"], "general")
         self.assertFalse(prof["needs_recency"])
-

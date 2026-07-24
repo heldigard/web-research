@@ -20,12 +20,13 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
 ]
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
+test = ["build>=1.2", "mypy>=1.11", "pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
 
 # Console script so `pip install -e .` puts `web-research` on PATH. The wired
 # ecosystem path is the shim at ~/.claude/scripts/web-research.py (skills call
@@ -33,6 +34,11 @@ test = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
 # symlinks to that shim. This entry is a convenience for standalone installs.
 [project.scripts]
 web-research = "web_research.cli:main"
+
+[project.urls]
+Changelog = "https://github.com/heldigard/web-research/blob/main/CHANGELOG.md"
+Issues = "https://github.com/heldigard/web-research/issues"
+Repository = "https://github.com/heldigard/web-research"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -49,6 +55,16 @@ ignore = ["E501"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/web_research"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.claude",
+  "/.github",
+  "/.memory-bank",
+  "/docs/plans",
+  "/todos",
+  "/CLAUDE.md",
+]
 
 [tool.mypy]
 ignore_missing_imports = true

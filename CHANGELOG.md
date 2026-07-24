@@ -6,6 +6,24 @@ that constraint.
 
 ## [Unreleased] — 2026-07-19
 
+### Runtime and delivery hardening (2026-07-23)
+
+- `robots.txt` now uses the shared HTTP client, so its fetch inherits the
+  configured timeout, retries, and project user agent; 401/403 deny and 4xx
+  allow semantics remain explicit. Non-HTTP(S) reader URLs are rejected at
+  the robots boundary.
+- Invalid negative or non-finite `Retry-After` values are ignored instead of
+  reaching `time.sleep()` as unsafe delays.
+- CI now installs from `uv.lock`, runs compatibility tests on Python
+  3.11–3.14, applies least-privilege permissions/concurrency timeouts, and
+  builds plus smokes the wheel. The previously failing repository-wide Ruff
+  format gate is clean.
+- Source distributions omit internal agent memory/plans/TODO state while
+  retaining tests and user-facing docs; package metadata now links to the
+  repository, issues, and changelog.
+- Direct Web-tier skills now match the live DuckDuckGo/HTML fallback chains
+  and state the explicit `--allow-cloud-fallback` PAYG boundary.
+
 ### Subscription-first cloud boundary (2026-07-21)
 
 - PAYG synthesis through `cheap_llm.py` is disabled by default for both

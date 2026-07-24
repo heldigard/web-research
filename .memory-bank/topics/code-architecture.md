@@ -108,8 +108,8 @@ class HttpxClient:
     def post_json(self, url, payload, *, timeout=None, headers=None): ...
     def get_bytes(self, url, *, timeout=None, headers=None): ...
 
-# at startup / from a config flag
-from web_research.shared.http import set_default_client
-set_default_client(HttpxClient())
+# in shared/http.py: replace the module singleton assignment
+_client: HttpClient = HttpxClient()
 ```
-No edits to backends or the dispatcher.
+No edits to backends or the dispatcher. Reintroduce a setter only if a real
+runtime swap requirement appears.

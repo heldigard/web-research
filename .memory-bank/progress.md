@@ -44,3 +44,4 @@
 - 2026-07-19T16:43:42Z | 2026-07-19: Recency fix SHIPPED — Fable-5 class failure (old July 7/12 headline beat July 19 update). parse_result_date+recency_weight+near-dup prefers newer+scrape diversity+sticky needs_recency+time_range month. Live smoke: research --smart cites July 19. Full controller-quality batch (cascade/grounding/scrape recovery) same session.
 - 2026-07-19T16:45:38Z | status:completed | session:gen:d73e2ece-9819-41a9-a1c6-5c25b62ade47 | claude: Engine cascade, grounding, scrape recovery, ES profiles
 - 2026-07-19T16:49:53Z | 2026-07-19: Multi-hop SHIPPED — research --smart runs ≤1 follow-up hop from recommended_next_search (+2 scrapes, re-synth); --no-follow-up disables. synthesize_result returns structured meta. Offline retrieval eval (parse/near-dup/MRR/diversity). Suite green.
+- 2026-07-24T01:35:06Z | status:completed | session:bbaed22d-6ef4-4b4b-82de-88386482d8c8 | claude: Expand retrieval fixtures when ranking changes again

@@ -1,4 +1,5 @@
 """Tests for scrape backends, fallback, and scrape caching. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -44,7 +45,6 @@ class ScrapeTests(unittest.TestCase):
         self.assertIn("Hello", md)
 
 
-
 class FallbackTests(unittest.TestCase):
     """scrape_with_fallback: Firecrawl down -> Z.AI reader."""
 
@@ -71,7 +71,6 @@ class FallbackTests(unittest.TestCase):
             with patch("urllib.request.urlopen", side_effect=Exception("down")):
                 md = wr.scrape_with_fallback("https://example.com")
         self.assertEqual(md, "")
-
 
 
 class ResearchScrapeCacheTests(unittest.TestCase):
@@ -125,4 +124,3 @@ class ResearchScrapeCacheTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

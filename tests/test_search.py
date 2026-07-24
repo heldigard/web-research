@@ -1,4 +1,5 @@
 """Tests for search backends (searxng/minimax/zai) and dedup. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401

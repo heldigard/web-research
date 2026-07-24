@@ -1,4 +1,5 @@
 """Tests for synthesis, render-structured, and compact. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -180,7 +181,6 @@ class SynthesisTests(unittest.TestCase):
         self.assertIn(
             "xentriom", called_model, f"FALLBACK slot called wrong model: {called_model!r}"
         )
-
 
 
 class RenderStructuredTests(unittest.TestCase):

@@ -80,15 +80,17 @@ automatic and requires `--allow-cloud-fallback`.
 - **cheap_llm.py graduated to `~/cheap-llm/`** (standalone project,
   github.com/heldigard/cheap-llm). Shim at `~/.claude/scripts/cheap_llm.py`
   re-exports from there. Consumed as an OPTIONAL fallback via
-  `WEB_RESEARCH_SCRIPTS` env (alias `CHEAP_LLM_HOME` for back-compat;
-  default `~/.claude/scripts`); graceful degrade if absent.
+  `WEB_RESEARCH_SCRIPTS` (default `~/.claude/scripts`); graceful degrade if
+  absent. `CHEAP_LLM_HOME` is internal to the cheap-llm shim and is not a
+  scripts-directory alias.
 - External services: SearXNG `:8080`, Firecrawl `:3002`, Ollama `:11434`.
 
 ## Commands
 
-- Install (dev): `uv sync` (or `pip install -e .[test]`)
-- Test: `python3 -m pytest tests/ -q`
-- Lint: `ruff check src` · Format: `ruff format --check src`
+- Install (dev): `uv sync --extra test --locked` (or `pip install -e .[test]`)
+- Test: `uv run pytest tests/ -q`
+- Lint: `uv run ruff check .` · Format: `uv run ruff format --check .`
+- Types/build: `uv run mypy src/` · `uv run python -m build`
 - Smoke: `python3 shim.py search "test" -n 2`
 
 ## Model routing

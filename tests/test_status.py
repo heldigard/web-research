@@ -1,4 +1,5 @@
 """Tests for status/health probes. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -58,9 +59,7 @@ class StatusTests(unittest.TestCase):
         for name in ("searxng", "firecrawl", "ollama"):
             self.assertTrue(payload["services"][name]["ok"], name)
         self.assertFalse(payload["cloud_fallback"]["enabled_by_default"])
-        self.assertEqual(
-            payload["cloud_fallback"]["opt_in_flag"], "--allow-cloud-fallback"
-        )
+        self.assertEqual(payload["cloud_fallback"]["opt_in_flag"], "--allow-cloud-fallback")
         # Verbose installed model list must not leak into the service entry.
         self.assertNotIn("models", payload["services"]["ollama"])
 

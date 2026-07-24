@@ -1,4 +1,5 @@
 """Tests for backend slice building and settings. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -121,4 +122,3 @@ class BackendSliceTests(unittest.TestCase):
             assert cache.get("probe", {"k": 1}, engine_tag="t1") is None
         finally:
             cache.SCHEMA_VERSION = original  # type: ignore[attr-defined]
-

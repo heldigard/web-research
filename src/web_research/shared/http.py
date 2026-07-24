@@ -18,6 +18,7 @@ the ``_client`` assignment (or reintroducing a setter then).
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 import urllib.error
@@ -38,20 +39,24 @@ def _backoff_seconds(attempt: int, base: float, cap: float = 10.0) -> float:
 
 
 def _retry_after_seconds(err: urllib.error.HTTPError, cap: float = 30.0) -> float | None:
-    """Parse a ``Retry-After`` header (seconds form only) to a wait in seconds.
+    """Parse a ``Retry-After`` header (numeric seconds form) to a safe delay.
 
     Returns ``None`` when absent or unparseable. HTTP-date form is intentionally
-    not converted (no tz-safe parser in stdlib); only integer-second values are
-    honored. Capped so a hostile header can't stall the engine.
+    not converted (no tz-safe parser in stdlib). Negative and non-finite values
+    are rejected; valid delays are capped so a hostile header cannot stall the
+    engine.
     """
     headers = getattr(err, "headers", None)
     raw = headers.get("Retry-After") if headers else None
     if not raw:
         return None
     try:
-        return min(cap, float(raw))
+        seconds = float(raw)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(cap, seconds)
 
 
 class HttpClient(Protocol):

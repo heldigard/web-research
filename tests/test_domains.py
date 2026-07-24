@@ -1,4 +1,5 @@
 """Tests for domain matching. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -53,4 +54,3 @@ class DomainMatchTests(unittest.TestCase):
     def test_fake_stackoverflow_no_match(self):
         score = wr.source_quality_score("https://evil-stackoverflow.com/q/1", "T", "short")
         self.assertLess(score, 0.4)
-

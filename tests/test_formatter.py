@@ -1,4 +1,5 @@
 """Tests for result formatting. Extracted from the former monolithic test_web_research.py."""
+
 from __future__ import annotations
 
 import io  # noqa: F401
@@ -51,4 +52,3 @@ class FormatterTests(unittest.TestCase):
         out = wr.fmt_smart_results(results, "q")
         self.assertIn("Smart search", out)
         self.assertNotIn("Intent:", out)  # no profile -> no header
-
