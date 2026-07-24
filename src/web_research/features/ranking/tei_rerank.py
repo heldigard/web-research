@@ -46,15 +46,24 @@ def rerank(query: str, texts: list[str]) -> list[tuple[int, float]] | None:
             {"query": query, "texts": texts, "raw_scores": False},
             timeout=20,
         )
-    except Exception as e:  # noqa: BLE001 — TEI down -> fall back to bi-encoder
+        # Parse inside the guard: TEI returns a bare JSON array, so an envelope
+        # mismatch or any transport/shape oddity must degrade to the bi-encoder
+        # rather than raise into the rerank path and break `search --rerank`.
+        return _parse_tei_scores(data)
+    except Exception as e:  # noqa: BLE001 — TEI down/malformed -> bi-encoder
         warn("tei", str(e))
         return None
-    return _parse_tei_scores(data)
 
 
-def _parse_tei_scores(data: dict) -> list[tuple[int, float]] | None:
-    """Normalize TEI's ``[{index, score}, ...]`` response into sorted pairs."""
-    raw = data.get("results")
+def _parse_tei_scores(data: object) -> list[tuple[int, float]] | None:
+    """Normalize TEI's ``/rerank`` response into sorted ``(index, score)`` pairs.
+
+    TEI returns a bare JSON array ``[{"index": n, "score": f}, ...]`` (its
+    OpenAPI ``/rerank`` response is ``type: array`` of ``Rank``). A
+    ``{"results": [...]}`` envelope is also tolerated so a wrapping proxy or a
+    future variant still parses instead of silently dropping every score.
+    """
+    raw = data.get("results") if isinstance(data, dict) else data
     if not isinstance(raw, list) or not raw:
         return None
     scored: list[tuple[int, float]] = []
