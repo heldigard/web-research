@@ -15,3 +15,4 @@
 ## Do not re-do
 - Unlimited multi-hop (hard cap = 1)
 - Snippet deadlines as publish dates
+- 2026-07-24T01:53:15Z | status:completed | session:obj_d83cbcff/task_07582326 | Project-hardening validation finished; cache isolation remains pending in tests/conftest.py with its changelog/plan notes. Retrieval-fixture work remains independent.

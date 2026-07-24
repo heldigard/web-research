@@ -14,6 +14,8 @@ that constraint.
   the robots boundary.
 - Invalid negative or non-finite `Retry-After` values are ignored instead of
   reaching `time.sleep()` as unsafe delays.
+- Tests use a unique temporary cache per process, so parallel Python-version
+  runs cannot contaminate one another or touch the user's real cache.
 - CI now installs from `uv.lock`, runs compatibility tests on Python
   3.11–3.14, applies least-privilege permissions/concurrency timeouts, and
   builds plus smokes the wheel. The previously failing repository-wide Ruff

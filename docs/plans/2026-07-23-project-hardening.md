@@ -1,7 +1,7 @@
 # Project and ecosystem hardening plan
 
 > Date: 2026-07-23
-> Status: deepened / ready for implementation
+> Status: validated / complete
 > Scope: `web-research` plus the directly coupled local Web-tier skills
 
 ## Objective
@@ -18,6 +18,8 @@ the CLI contract or enabling paid services implicitly.
 - `ruff check`: clean.
 - `ruff format --check .`: fails on 12 test files, so the current CI format
   step is red on `main`.
+- Tests default to the user's real cache directory, which is unsafe for local
+  runs and allows cross-process contamination.
 - `codescan`: no secret, SAST, lint, type, or architecture findings; four
   vulture findings are pytest class-name false positives.
 - The project declares Python 3.11–3.13 support but CI only exercises 3.12;
@@ -47,6 +49,7 @@ the CLI contract or enabling paid services implicitly.
 
 - Format the existing test suite so the checked-in tree satisfies the current
   CI format command.
+- Give every pytest process a unique temporary cache and clean it at exit.
 - Declare the already-passing Python 3.14 line and exercise every declared
   version (3.11–3.14) in CI while keeping lint/type/build checks on one
   version for fast feedback.
@@ -149,6 +152,21 @@ python -m web_research --version
 For Python 3.11–3.14, use uv-managed interpreters and isolated temporary
 environments so the repository `.venv` and user configuration are not
 mutated by the compatibility check.
+
+## Validation result
+
+- Python 3.11, 3.12, 3.13, and 3.14: 186 tests passed on each interpreter,
+  including simultaneous isolated runs.
+- Coverage: 89.61% (required minimum: 85%).
+- Ruff format/lint, mypy, lockfile check, and `git diff --check`: clean.
+- `codescan all --offline`: zero secrets, lint/type/architecture errors, or
+  new actionable findings; four known pytest-class vulture false positives.
+- Wheel and sdist built from isolation; the installed wheel passed version and
+  capability smokes, packaged ranking data was present, and internal
+  agent-state paths were absent from the sdist.
+- Wired shim, PATH entry point, and five updated skill frontmatters/contracts
+  passed local smoke checks. Browser/video validation was not applicable to
+  this headless CLI/configuration change.
 
 ## Explicit non-goals
 
