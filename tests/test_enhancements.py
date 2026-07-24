@@ -439,18 +439,57 @@ class TeiRerankTests(unittest.TestCase):
         self.assertFalse(tei_rerank.tei_enabled())
         self.assertIsNone(tei_rerank.rerank("q", ["a", "b"]))
 
-    def test_parse_scores_sorts_desc(self) -> None:
-        data = {
-            "results": [
-                {"index": 2, "score": 0.9},
-                {"index": 0, "score": 0.3},
-                {"index": 1, "score": 0.7},
-            ]
-        }
+    def test_parse_scores_bare_array_sorts_desc(self) -> None:
+        # TEI's real /rerank response is a bare JSON array (its OpenAPI spec
+        # declares the response as `type: array` of Rank), NOT a
+        # {"results": [...]} wrapper.
+        data = [
+            {"index": 2, "score": 0.9},
+            {"index": 0, "score": 0.3},
+            {"index": 1, "score": 0.7},
+        ]
         self.assertEqual(
             tei_rerank._parse_tei_scores(data),
             [(2, 0.9), (1, 0.7), (0, 0.3)],
         )
+
+    def test_parse_scores_tolerates_results_wrapper(self) -> None:
+        data = {"results": [{"index": 1, "score": 0.8}, {"index": 0, "score": 0.2}]}
+        self.assertEqual(
+            tei_rerank._parse_tei_scores(data),
+            [(1, 0.8), (0, 0.2)],
+        )
+
+    def test_parse_scores_rejects_unexpected_shape(self) -> None:
+        self.assertIsNone(tei_rerank._parse_tei_scores("not a list"))
+        self.assertIsNone(tei_rerank._parse_tei_scores(None))
+        self.assertIsNone(tei_rerank._parse_tei_scores([]))
+
+    def test_rerank_parses_bare_array_end_to_end(self) -> None:
+        # Regression: a live TEI returns the real bare-array shape, so rerank()
+        # must yield sorted pairs — not raise AttributeError (the old code did
+        # data.get("results") on a list, outside the transport guard).
+        _config.reload_settings(tei_rerank_url="http://tei:8081")
+        fake_client = Mock()
+        fake_client.post_json.return_value = [
+            {"index": 1, "score": 0.9},
+            {"index": 0, "score": 0.2},
+        ]
+        with patch(
+            "web_research.features.ranking.tei_rerank.default_client",
+            return_value=fake_client,
+        ):
+            self.assertEqual(tei_rerank.rerank("q", ["a", "b"]), [(1, 0.9), (0, 0.2)])
+
+    def test_rerank_degrades_to_none_on_transport_error(self) -> None:
+        _config.reload_settings(tei_rerank_url="http://tei:8081")
+        fake_client = Mock()
+        fake_client.post_json.side_effect = OSError("connection refused")
+        with patch(
+            "web_research.features.ranking.tei_rerank.default_client",
+            return_value=fake_client,
+        ):
+            self.assertIsNone(tei_rerank.rerank("q", ["a", "b"]))
 
     def test_maybe_tei_noop_when_disabled(self) -> None:
         kept = [{"title": "a", "content": "x"}, {"title": "b", "content": "y"}]
