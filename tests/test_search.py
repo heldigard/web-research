@@ -94,7 +94,13 @@ class SearchTests(unittest.TestCase):
                 "verbose": {"flag": "--verbose", "default": False},
                 "engine": {"flag": "--engine", "default": "firecrawl"},
                 "robots": {"default": "enforce", "bypass_flag": "--no-robots"},
-                "wait": {"flag": "--wait", "type": "integer", "unit": "seconds", "default": 0},
+                "wait": {
+                    "flag": "--wait",
+                    "type": "integer",
+                    "unit": "milliseconds",
+                    "default": 0,
+                    "note": "passed unconverted to Firecrawl waitFor (ms)",
+                },
                 "zai_timeout": {
                     "flag": "--zai-timeout",
                     "type": "integer",

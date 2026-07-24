@@ -160,7 +160,12 @@ def build_parser(handlers: dict[str, Callable]) -> argparse.ArgumentParser:
         action="store_true",
         help="skip robots.txt check before fetching the URL.",
     )
-    prd.add_argument("--wait", type=int, default=0)
+    prd.add_argument(
+        "--wait",
+        type=int,
+        default=0,
+        help="milliseconds to wait for JS rendering before Firecrawl scrapes.",
+    )
     prd.add_argument("--zai-timeout", type=int, default=20, help="Z.AI reader timeout")
     prd.add_argument("--max-chars", type=int, default=12000)
     prd.set_defaults(func=handlers["read"])
